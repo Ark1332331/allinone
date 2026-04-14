@@ -1,0 +1,2049 @@
+openapi: 3.0.3
+info:
+  title: DeepWiki API
+  description: |
+    API for DeepWiki - AI-powered wiki generation for repositories.
+    
+    ## Features
+    - Generate wiki documentation for GitHub/GitLab/BitBucket repositories
+    - RAG-powered chat with repositories
+    - Multiple LLM provider support (Google, OpenAI, OpenRouter, Ollama, Azure, Bedrock, Dashscope)
+    - Wiki cache management
+    - Export wiki content in Markdown or JSON format
+    
+    ## Authentication
+    Some endpoints may require authorization code when `DEEPWIKI_AUTH_MODE` is enabled.
+  version: 1.0.0
+  contact:
+    name: DeepWiki
+    url: https://github.com/AsyncFuncAI/deepwiki-open
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8001
+    description: Local development backend server
+  - url: http://localhost:3000
+    description: Frontend proxy server
+
+tags:
+  - name: Health
+    description: Health check and API information endpoints
+  - name: Auth
+    description: Authentication and authorization endpoints
+  - name: Models
+    description: LLM model provider configuration endpoints
+  - name: Language
+    description: Language configuration endpoints
+  - name: Wiki Cache
+    description: Wiki cache management endpoints (CRUD operations)
+  - name: Chat
+    description: Chat and Q&A endpoints with repository context
+  - name: Export
+    description: Wiki export endpoints (Markdown/JSON)
+  - name: Local Repository
+    description: Local repository analysis endpoints
+  - name: Processed Projects
+    description: Processed projects listing and management
+  - name: Reading Guide
+    description: 闯关式代码阅读指南接口（新增）
+  - name: Glossary
+    description: 专有名词术语接口（新增）
+  - name: Wiki Search
+    description: Wiki全文搜索接口（新增）
+
+paths:
+  /:
+    get:
+      tags:
+        - Health
+      summary: Root endpoint
+      description: Returns API information, version, and dynamically lists all available endpoints grouped by category.
+      operationId: root
+      responses:
+        '200':
+          description: API information retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - message
+                  - version
+                  - endpoints
+                properties:
+                  message:
+                    type: string
+                    example: "Welcome to Streaming API"
+                  version:
+                    type: string
+                    example: "1.0.0"
+                  endpoints:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items:
+                        type: string
+                    example:
+                      Health:
+                        - "GET /"
+                        - "GET /health"
+                      Auth:
+                        - "GET /auth/status"
+                        - "POST /auth/validate"
+
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Health check endpoint for Docker container health monitoring and load balancer health checks.
+      operationId: health_check
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - timestamp
+                  - service
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy]
+                    example: "healthy"
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: "2024-01-15T10:30:00.000Z"
+                  service:
+                    type: string
+                    example: "deepwiki-api"
+
+  /auth/status:
+    get:
+      tags:
+        - Auth
+      summary: Get authentication status
+      description: |
+        Check if authentication is required for wiki generation operations.
+        Frontend uses this to determine whether to show the authorization code input field.
+      operationId: get_auth_status
+      responses:
+        '200':
+          description: Authentication status retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - auth_required
+                properties:
+                  auth_required:
+                    type: boolean
+                    description: Whether authorization is required
+                    example: false
+              example:
+                auth_required: false
+
+  /auth/validate:
+    post:
+      tags:
+        - Auth
+      summary: Validate authorization code
+      description: |
+        Validate the provided authorization code against the configured `DEEPWIKI_AUTH_CODE`.
+        Used when `DEEPWIKI_AUTH_MODE` is enabled to control access to wiki generation features.
+      operationId: validate_auth_code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorizationConfig'
+            example:
+              code: "your-secret-code"
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                properties:
+                  success:
+                    type: boolean
+                    description: Whether the authorization code is valid
+              examples:
+                valid:
+                  value:
+                    success: true
+                invalid:
+                  value:
+                    success: false
+
+  /models/config:
+    get:
+      tags:
+        - Models
+      summary: Get model configuration
+      description: |
+        Get available LLM model providers and their supported models.
+        Used by frontend to populate the model selection dropdown.
+        
+        Supports providers: google, openai, openrouter, ollama, bedrock, azure, dashscope
+      operationId: get_model_config
+      responses:
+        '200':
+          description: Model configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelConfig'
+              example:
+                providers:
+                  - id: "google"
+                    name: "Google"
+                    supportsCustomModel: true
+                    models:
+                      - id: "gemini-2.5-flash"
+                        name: "gemini-2.5-flash"
+                      - id: "gemini-2.5-pro"
+                        name: "gemini-2.5-pro"
+                  - id: "openai"
+                    name: "Openai"
+                    supportsCustomModel: true
+                    models:
+                      - id: "gpt-4o"
+                        name: "gpt-4o"
+                defaultProvider: "google"
+
+  /lang/config:
+    get:
+      tags:
+        - Language
+      summary: Get language configuration
+      description: |
+        Get supported languages for wiki generation.
+        Returns a mapping of language codes to display names.
+      operationId: get_lang_config
+      responses:
+        '200':
+          description: Language configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - supported_languages
+                  - default
+                properties:
+                  supported_languages:
+                    type: object
+                    additionalProperties:
+                      type: string
+                    description: Mapping of language codes to display names
+                  default:
+                    type: string
+                    description: Default language code
+              example:
+                supported_languages:
+                  en: "English"
+                  ja: "Japanese (日本語)"
+                  zh: "Mandarin Chinese (中文)"
+                  zh-tw: "Traditional Chinese (繁體中文)"
+                  es: "Spanish (Español)"
+                  kr: "Korean (한국어)"
+                  vi: "Vietnamese (Tiếng Việt)"
+                  pt-br: "Brazilian Portuguese (Português Brasileiro)"
+                  fr: "Français (French)"
+                  ru: "Русский (Russian)"
+                default: "en"
+
+  /local_repo/structure:
+    get:
+      tags:
+        - Local Repository
+      summary: Get local repository structure
+      description: |
+        Return the file tree and README content for a local repository path.
+        Used when analyzing local repositories instead of remote Git repositories.
+        
+        Excludes hidden files, `__pycache__`, `node_modules`, and `.venv` directories.
+      operationId: get_local_repo_structure
+      parameters:
+        - name: path
+          in: query
+          description: |
+            Absolute path to local repository.
+            Windows: `C:\\Users\\...\\repo`
+            Unix: `/home/user/repo`
+          required: true
+          schema:
+            type: string
+          example: "C:\\Users\\dev\\my-project"
+      responses:
+        '200':
+          description: Repository structure retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - file_tree
+                  - readme
+                properties:
+                  file_tree:
+                    type: string
+                    description: Newline-separated list of relative file paths
+                  readme:
+                    type: string
+                    description: Content of README.md file (empty string if not found)
+              example:
+                file_tree: "src/index.ts\nsrc/utils/helper.ts\npackage.json"
+                readme: "# My Project\n\nThis is my project..."
+        '400':
+          description: No path provided
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: "No path provided. Please provide a 'path' query parameter."
+        '404':
+          description: Directory not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: "Directory not found: /invalid/path"
+        '500':
+          description: Error processing repository
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /export/wiki:
+    post:
+      tags:
+        - Export
+      summary: Export wiki content
+      description: |
+        Export wiki content as a downloadable Markdown or JSON file.
+        The response includes appropriate headers for browser download.
+        
+        Filename format: `{repo_name}_wiki_{timestamp}.{md|json}`
+      operationId: export_wiki
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WikiExportRequest'
+            example:
+              repo_url: "https://github.com/AsyncFuncAI/deepwiki-open"
+              format: "markdown"
+              pages:
+                - id: "overview"
+                  title: "Overview"
+                  content: "# Overview\n\nThis is the overview..."
+                  filePaths: ["README.md"]
+                  importance: "high"
+                  relatedPages: ["installation"]
+      responses:
+        '200':
+          description: Wiki exported successfully
+          headers:
+            Content-Disposition:
+              description: Filename for download
+              schema:
+                type: string
+                example: "attachment; filename=deepwiki-open_wiki_20240115_103000.md"
+          content:
+            text/markdown:
+              schema:
+                type: string
+                description: Markdown formatted wiki content
+            application/json:
+              schema:
+                type: string
+                description: JSON formatted wiki content
+        '500':
+          description: Export error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+
+  /chat/completions/stream:
+    post:
+      tags:
+        - Chat
+      summary: Stream chat completion
+      description: |
+        Stream a chat completion response using RAG (Retrieval Augmented Generation).
+        
+        The endpoint accepts a repository URL and messages, then:
+        1. Creates embeddings of the repository (if not cached)
+        2. Retrieves relevant context using the query
+        3. Streams a response from the specified LLM provider
+        
+        Supports Deep Research mode by including `[DEEP RESEARCH]` tag in message content.
+      operationId: chat_completions_stream
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+            example:
+              repo_url: "https://github.com/AsyncFuncAI/deepwiki-open"
+              messages:
+                - role: "user"
+                  content: "What is the main purpose of this project?"
+              provider: "google"
+              model: "gemini-2.5-flash"
+              language: "en"
+              type: "github"
+      responses:
+        '200':
+          description: Streaming response
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-sent events with text chunks
+        '400':
+          description: Invalid request (e.g., no messages, last message not from user)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+        '500':
+          description: Server error (e.g., no valid embeddings, retriever preparation failed)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+
+  /ws/chat:
+    get:
+      tags:
+        - Chat
+      summary: WebSocket chat endpoint
+      description: |
+        WebSocket endpoint for real-time bidirectional chat with repository context.
+        
+        Connection flow:
+        1. Client connects via WebSocket
+        2. Client sends JSON request with `ChatCompletionRequest` schema
+        3. Server streams text chunks back
+        4. Server closes connection when complete
+        
+        Supports all parameters from the HTTP streaming endpoint plus real-time interaction.
+      operationId: websocket_chat
+      parameters: []
+      responses:
+        '200':
+          description: |
+            WebSocket connection established. 
+            
+            Client should send JSON message with the following schema:
+            ```json
+            {
+              "repo_url": "https://github.com/owner/repo",
+              "messages": [{"role": "user", "content": "question"}],
+              "provider": "google",
+              "model": "gemini-2.5-flash",
+              "language": "en",
+              "type": "github",
+              "token": "optional-pat",
+              "filePath": "optional/file/path.ts",
+              "excluded_dirs": "node_modules\\ndist",
+              "excluded_files": "*.lock",
+              "included_dirs": "src",
+              "included_files": "*.ts"
+            }
+            ```
+            
+            Server streams text chunks and closes connection when complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionRequest'
+
+  /api/wiki_cache:
+    get:
+      tags:
+        - Wiki Cache
+      summary: Get cached wiki
+      description: |
+        Retrieves cached wiki data (structure and generated pages) for a repository.
+        
+        Cache files are stored in `~/.adalflow/wikicache/` with naming convention:
+        `deepwiki_cache_{repo_type}_{owner}_{repo}_{language}.json`
+        
+        Returns `null` if no cache exists (frontend should trigger new generation).
+      operationId: get_cached_wiki
+      parameters:
+        - name: owner
+          in: query
+          required: true
+          description: Repository owner/organization name
+          schema:
+            type: string
+          example: "AsyncFuncAI"
+        - name: repo
+          in: query
+          required: true
+          description: Repository name
+          schema:
+            type: string
+          example: "deepwiki-open"
+        - name: repo_type
+          in: query
+          required: true
+          description: Repository hosting platform type
+          schema:
+            type: string
+            enum: [github, gitlab, bitbucket]
+          example: "github"
+        - name: language
+          in: query
+          required: true
+          description: Wiki content language code
+          schema:
+            type: string
+            enum: [en, ja, zh, zh-tw, es, kr, vi, pt-br, fr, ru]
+          example: "en"
+      responses:
+        '200':
+          description: Cached wiki data (or null if not found)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/WikiCacheData'
+                  - type: "null"
+              example:
+                wiki_structure:
+                  id: "deepwiki_structure"
+                  title: "DeepWiki-Open Wiki"
+                  description: "Documentation for deepwiki-open repository"
+                  pages: []
+                  sections: []
+                generated_pages: {}
+                repo_url: "https://github.com/AsyncFuncAI/deepwiki-open"
+                provider: "google"
+                model: "gemini-2.5-flash"
+
+    post:
+      tags:
+        - Wiki Cache
+      summary: Store wiki cache
+      description: |
+        Stores generated wiki data (structure and pages) to the server-side cache.
+        Called by frontend after wiki generation is complete.
+      operationId: store_wiki_cache
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WikiCacheRequest'
+            example:
+              repo:
+                owner: "AsyncFuncAI"
+                repo: "deepwiki-open"
+                type: "github"
+              language: "en"
+              wiki_structure:
+                id: "structure"
+                title: "Wiki Structure"
+                description: "Main wiki"
+                pages: []
+              generated_pages: {}
+              provider: "google"
+              model: "gemini-2.5-flash"
+      responses:
+        '200':
+          description: Cache saved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+              example:
+                message: "Wiki cache saved successfully"
+        '500':
+          description: Failed to save cache
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+
+  /api/wiki_cache/delete:
+    delete:
+      tags:
+        - Wiki Cache
+      summary: Delete wiki cache
+      description: |
+        Deletes a specific wiki cache file from the server.
+        
+        Requires authorization code if `DEEPWIKI_AUTH_MODE` is enabled.
+        Used to force re-generation of wiki content.
+      operationId: delete_wiki_cache
+      parameters:
+        - name: owner
+          in: query
+          required: true
+          description: Repository owner/organization name
+          schema:
+            type: string
+          example: "AsyncFuncAI"
+        - name: repo
+          in: query
+          required: true
+          description: Repository name
+          schema:
+            type: string
+          example: "deepwiki-open"
+        - name: repo_type
+          in: query
+          required: true
+          description: Repository hosting platform type
+          schema:
+            type: string
+            enum: [github, gitlab, bitbucket]
+          example: "github"
+        - name: language
+          in: query
+          required: true
+          description: Wiki content language code
+          schema:
+            type: string
+            enum: [en, ja, zh, zh-tw, es, kr, vi, pt-br, fr, ru]
+          example: "en"
+        - name: authorization_code
+          in: query
+          required: false
+          description: Authorization code (required if `DEEPWIKI_AUTH_MODE` is enabled)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Cache deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+              example:
+                message: "Wiki cache for AsyncFuncAI/deepwiki-open (en) deleted successfully"
+        '400':
+          description: Invalid language
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+        '401':
+          description: Invalid or missing authorization code
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+              example:
+                detail: "Authorization code is invalid"
+        '404':
+          description: Wiki cache not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+              example:
+                detail: "Wiki cache not found"
+        '500':
+          description: Failed to delete cache
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+
+  /api/processed_projects:
+    get:
+      tags:
+        - Processed Projects
+      summary: 获取已处理项目列表（新增）
+      description: |
+        列出Wiki缓存目录中所有已处理的项目。
+        
+        扫描 `~/.adalflow/wikicache/` 目录，匹配文件模式：
+        `deepwiki_cache_{repo_type}_{owner}_{repo}_{language}.json`
+        
+        返回结果按修改时间倒序排列（最近处理的在前）。
+        用于在UI中显示"最近项目"或"项目历史"列表。
+        
+        **New Feature**: 支持项目历史快速访问功能。
+      operationId: get_processed_projects
+      responses:
+        '200':
+          description: 已处理项目列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProcessedProjectEntry'
+              example:
+                - id: "deepwiki_cache_github_AsyncFuncAI_deepwiki-open_en.json"
+                  owner: "AsyncFuncAI"
+                  repo: "deepwiki-open"
+                  name: "AsyncFuncAI/deepwiki-open"
+                  repo_type: "github"
+                  submittedAt: 1705312200000
+                  language: "en"
+                - id: "deepwiki_cache_github_microsoft_vscode_ja.json"
+                  owner: "microsoft"
+                  repo: "vscode"
+                  name: "microsoft/vscode"
+                  repo_type: "github"
+                  submittedAt: 1705308600000
+                  language: "ja"
+        '500':
+          description: 获取项目列表失败
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+              example:
+                detail: "Failed to list processed projects from server cache."
+
+  # ========================================
+  # 功能一：闯关式代码阅读指南（新增）
+  # ========================================
+
+  /wiki/reading-guide:
+    post:
+      tags:
+        - Reading Guide
+      summary: 生成阅读指南（新增）
+      description: |
+        基于Wiki结构生成闯关式阅读指南，将Wiki页面按学习路径组织。
+        
+        生成规则：
+        1. 根据页面标题关键词分组（如 "Overview" -> 第一关，"API" -> 第二关）
+        2. 按 `importance` 字段排序
+        3. 根据页面间的 `relatedPages` 建立关卡依赖关系
+        
+        **New Feature**: 支持有引导的学习路径，帮助用户系统性地阅读代码文档。
+      operationId: generate_reading_guide
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadingGuideGenerateRequest'
+            example:
+              owner: "AsyncFuncAI"
+              repo: "deepwiki-open"
+              repo_type: "github"
+              language: "en"
+              wiki_structure:
+                id: "wiki-structure"
+                title: "DeepWiki Documentation"
+                description: "Complete documentation"
+                pages: []
+      responses:
+        '200':
+          description: 阅读指南生成成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadingGuide'
+        '400':
+          description: 请求参数无效
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+        '500':
+          description: 生成失败
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+
+  /wiki/reading-guide/{id}:
+    get:
+      tags:
+        - Reading Guide
+      summary: 获取阅读指南（新增）
+      description: |
+        根据项目信息获取已生成的阅读指南。
+        
+        ID格式：`{repo_type}_{owner}_{repo}_{language}`
+        例如：`github_AsyncFuncAI_deepwiki-open_en`
+        
+        **New Feature**: 获取缓存的闯关式阅读指南。
+      operationId: get_reading_guide
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 阅读指南唯一标识
+          schema:
+            type: string
+          example: "github_AsyncFuncAI_deepwiki-open_en"
+      responses:
+        '200':
+          description: 阅读指南数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadingGuide'
+        '404':
+          description: 阅读指南不存在
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Reading guide not found"
+
+  /wiki/reading-progress:
+    get:
+      tags:
+        - Reading Guide
+      summary: 获取阅读进度（新增）
+      description: |
+        获取用户在特定项目上的阅读进度。
+        
+        进度数据基于用户已完成的页面ID列表和当前所在关卡。
+        
+        **New Feature**: 追踪用户的闯关进度。
+      operationId: get_reading_progress
+      parameters:
+        - name: owner
+          in: query
+          required: true
+          description: 仓库所有者
+          schema:
+            type: string
+          example: "AsyncFuncAI"
+        - name: repo
+          in: query
+          required: true
+          description: 仓库名称
+          schema:
+            type: string
+          example: "deepwiki-open"
+        - name: repo_type
+          in: query
+          required: true
+          description: 仓库类型
+          schema:
+            type: string
+            enum: [github, gitlab, bitbucket]
+          example: "github"
+        - name: language
+          in: query
+          required: true
+          description: Wiki语言
+          schema:
+            type: string
+          example: "en"
+      responses:
+        '200':
+          description: 阅读进度数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadingProgress'
+
+    put:
+      tags:
+        - Reading Guide
+      summary: 更新阅读进度（新增）
+      description: |
+        更新用户的阅读进度，标记页面为已完成或更新当前关卡。
+        
+        前端在用户阅读完某个页面后调用此接口更新进度。
+        
+        **New Feature**: 同步用户的闯关进度到后端。
+      operationId: update_reading_progress
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadingProgressUpdateRequest'
+            example:
+              owner: "AsyncFuncAI"
+              repo: "deepwiki-open"
+              repo_type: "github"
+              language: "en"
+              completed_page_ids: ["overview", "installation"]
+              current_level_id: "level-2"
+      responses:
+        '200':
+          description: 进度更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  progress:
+                    $ref: '#/components/schemas/ReadingProgress'
+
+  # ========================================
+  # 功能二：专有名词高亮与术语检索（新增）
+  # ========================================
+
+  /wiki/glossary:
+    get:
+      tags:
+        - Glossary
+      summary: 获取术语词典（新增）
+      description: |
+        获取项目Wiki的技术术语词典。
+        
+        **工作流程**：
+        1. 首次调用时，自动触发LLM分析所有页面内容
+        2. LLM识别专业术语并生成释义、定义、搜索关键词
+        3. 结果缓存到本地，后续请求直接返回缓存
+        4. Wiki重新生成后缓存自动失效
+        
+        **术语来源**：完全依赖LLM动态识别，不使用静态词典。
+        
+        **New Feature**: 为术语高亮功能提供数据源，支持AI驱动的术语自动识别。
+      operationId: get_glossary
+      parameters:
+        - name: owner
+          in: query
+          required: true
+          description: 仓库所有者
+          schema:
+            type: string
+          example: "AsyncFuncAI"
+        - name: repo
+          in: query
+          required: true
+          description: 仓库名称
+          schema:
+            type: string
+          example: "deepwiki-open"
+        - name: repo_type
+          in: query
+          required: true
+          description: 仓库类型
+          schema:
+            type: string
+            enum: [github, gitlab, bitbucket]
+          example: "github"
+        - name: language
+          in: query
+          required: true
+          description: Wiki语言
+          schema:
+            type: string
+          example: "en"
+      responses:
+        '200':
+          description: 术语词典列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  terms:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GlossaryTerm'
+                  statistics:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                    description: 术语出现频率统计
+                    example:
+                      RAG: 15
+                      FAISS: 8
+                      Embedding: 23
+                  cached:
+                    type: boolean
+                    description: 是否来自缓存
+
+  /wiki/glossary/refresh:
+    post:
+      tags:
+        - Glossary
+      summary: 强制重新抽取术语（新增）
+      description: |
+        强制使用LLM重新分析Wiki内容并抽取术语。
+        
+        **适用场景**：
+        - Wiki内容更新后需要重新识别术语
+        - 缓存失效需要重新生成
+        - 用户主动刷新术语列表
+        
+        **New Feature**: 支持术语列表的动态更新。
+      operationId: refresh_glossary
+      parameters:
+        - name: owner
+          in: query
+          required: true
+          description: 仓库所有者
+          schema:
+            type: string
+          example: "AsyncFuncAI"
+        - name: repo
+          in: query
+          required: true
+          description: 仓库名称
+          schema:
+            type: string
+          example: "deepwiki-open"
+        - name: repo_type
+          in: query
+          required: true
+          description: 仓库类型
+          schema:
+            type: string
+            enum: [github, gitlab, bitbucket]
+          example: "github"
+        - name: language
+          in: query
+          required: true
+          description: Wiki语言
+          schema:
+            type: string
+          example: "en"
+      responses:
+        '200':
+          description: 重新抽取成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  terms:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GlossaryTerm'
+                  statistics:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                  message:
+                    type: string
+                    example: "术语列表已更新"
+
+  /wiki/glossary/index:
+    get:
+      tags:
+        - Glossary
+      summary: 获取术语索引页数据（新增）
+      description: |
+        获取术语索引页所需的数据，包含所有术语及其在Wiki中的出现位置。
+        
+        用于生成 `/{owner}/{repo}/glossary` 术语索引页。
+        
+        **New Feature**: 支持术语索引页展示。
+      operationId: get_glossary_index
+      parameters:
+        - name: owner
+          in: query
+          required: true
+          description: 仓库所有者
+          schema:
+            type: string
+          example: "AsyncFuncAI"
+        - name: repo
+          in: query
+          required: true
+          description: 仓库名称
+          schema:
+            type: string
+          example: "deepwiki-open"
+        - name: repo_type
+          in: query
+          required: true
+          description: 仓库类型
+          schema:
+            type: string
+            enum: [github, gitlab, bitbucket]
+          example: "github"
+        - name: language
+          in: query
+          required: true
+          description: Wiki语言
+          schema:
+            type: string
+          example: "en"
+      responses:
+        '200':
+          description: 术语索引数据
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  terms:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        term:
+                          $ref: '#/components/schemas/GlossaryTerm'
+                        occurrences:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              pageId:
+                                type: string
+                              pageTitle:
+                                type: string
+                              count:
+                                type: integer
+                          description: 术语在各页面的出现情况
+                  totalTerms:
+                    type: integer
+                    description: 术语总数
+                    example: 42
+
+  # ========================================
+  # 功能三：Wiki全文搜索（新增）
+  # ========================================
+
+  /wiki/search:
+    get:
+      tags:
+        - Wiki Search
+      summary: Wiki全文搜索（新增）
+      description: |
+        在Wiki内容中进行全文搜索，支持标题、正文、文件路径三种搜索模式。
+        
+        搜索评分规则：
+        - 标题完全匹配：+100分
+        - 标题包含关键词：+60分
+        - 文件路径包含：+40分
+        - 正文包含：+20分
+        - 多次命中额外加分
+        
+        **New Feature**: 提供全文搜索能力，快速定位Wiki内容。
+      operationId: search_wiki
+      parameters:
+        - name: owner
+          in: query
+          required: true
+          description: 仓库所有者
+          schema:
+            type: string
+          example: "AsyncFuncAI"
+        - name: repo
+          in: query
+          required: true
+          description: 仓库名称
+          schema:
+            type: string
+          example: "deepwiki-open"
+        - name: repo_type
+          in: query
+          required: true
+          description: 仓库类型
+          schema:
+            type: string
+            enum: [github, gitlab, bitbucket]
+          example: "github"
+        - name: language
+          in: query
+          required: true
+          description: Wiki语言
+          schema:
+            type: string
+          example: "en"
+        - name: query
+          in: query
+          required: true
+          description: 搜索关键词
+          schema:
+            type: string
+          example: "RAG implementation"
+        - name: mode
+          in: query
+          required: false
+          description: 搜索模式
+          schema:
+            type: string
+            enum: [all, title, content, filePath]
+            default: all
+          example: "all"
+        - name: limit
+          in: query
+          required: false
+          description: 返回结果数量限制
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          example: 20
+        - name: offset
+          in: query
+          required: false
+          description: 分页偏移量
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+          example: 0
+      responses:
+        '200':
+          description: 搜索结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WikiSearchResult'
+                  total:
+                    type: integer
+                    description: 总结果数
+                    example: 5
+                  query:
+                    type: string
+                    description: 搜索关键词
+                    example: "RAG implementation"
+                  mode:
+                    type: string
+                    description: 搜索模式
+                    example: "all"
+                  pagination:
+                    type: object
+                    properties:
+                      offset:
+                        type: integer
+                      limit:
+                        type: integer
+                      hasMore:
+                        type: boolean
+
+  /wiki/search/history:
+    get:
+      tags:
+        - Wiki Search
+      summary: 获取搜索历史（新增）
+      description: |
+        获取用户的搜索历史记录，按时间倒序排列。
+        
+        用于在搜索框中显示历史搜索建议。
+        
+        **New Feature**: 搜索历史功能支持。
+      operationId: get_search_history
+      parameters:
+        - name: owner
+          in: query
+          required: true
+          description: 仓库所有者
+          schema:
+            type: string
+        - name: repo
+          in: query
+          required: true
+          description: 仓库名称
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: 返回历史记录数量
+          schema:
+            type: integer
+            default: 10
+            maximum: 50
+      responses:
+        '200':
+          description: 搜索历史列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  history:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        query:
+                          type: string
+                          example: "RAG implementation"
+                        timestamp:
+                          type: integer
+                          format: int64
+                          description: Unix时间戳（毫秒）
+                          example: 1705312200000
+
+    delete:
+      tags:
+        - Wiki Search
+      summary: 清空搜索历史（新增）
+      description: |
+        清空指定项目的搜索历史记录。
+        
+        **New Feature**: 搜索历史管理。
+      operationId: clear_search_history
+      parameters:
+        - name: owner
+          in: query
+          required: true
+          description: 仓库所有者
+          schema:
+            type: string
+        - name: repo
+          in: query
+          required: true
+          description: 仓库名称
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 历史清空成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+
+components:
+  schemas:
+    # === Wiki Related Schemas ===
+    WikiPage:
+      type: object
+      required:
+        - id
+        - title
+        - content
+        - filePaths
+        - importance
+        - relatedPages
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the page
+          example: "overview"
+        title:
+          type: string
+          description: Display title for the page
+          example: "Overview"
+        content:
+          type: string
+          description: Markdown content of the page
+          example: "# Overview\n\nThis is the overview content..."
+        filePaths:
+          type: array
+          description: List of source file paths that contributed to this page
+          items:
+            type: string
+          example: ["README.md", "package.json"]
+        importance:
+          type: string
+          description: Importance level for the page
+          enum: [high, medium, low]
+          example: "high"
+        relatedPages:
+          type: array
+          description: IDs of related wiki pages
+          items:
+            type: string
+          example: ["installation", "usage"]
+
+    WikiSection:
+      type: object
+      required:
+        - id
+        - title
+        - pages
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the section
+          example: "getting-started"
+        title:
+          type: string
+          description: Display title for the section
+          example: "Getting Started"
+        pages:
+          type: array
+          description: IDs of pages in this section
+          items:
+            type: string
+          example: ["overview", "installation", "quick-start"]
+        subsections:
+          type: array
+          description: IDs of nested subsections
+          items:
+            type: string
+          example: ["advanced-setup"]
+
+    WikiStructureModel:
+      type: object
+      required:
+        - id
+        - title
+        - description
+        - pages
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the wiki structure
+          example: "wiki-structure"
+        title:
+          type: string
+          description: Wiki title
+          example: "Project Documentation"
+        description:
+          type: string
+          description: Wiki description
+          example: "Complete documentation for the project"
+        pages:
+          type: array
+          description: List of all wiki pages
+          items:
+            $ref: '#/components/schemas/WikiPage'
+        sections:
+          type: array
+          description: Top-level sections
+          items:
+            $ref: '#/components/schemas/WikiSection'
+        rootSections:
+          type: array
+          description: IDs of root-level sections for navigation
+          items:
+            type: string
+          example: ["getting-started", "api-reference", "contributing"]
+
+    RepoInfo:
+      type: object
+      required:
+        - owner
+        - repo
+        - type
+      properties:
+        owner:
+          type: string
+          description: Repository owner/organization
+          example: "AsyncFuncAI"
+        repo:
+          type: string
+          description: Repository name
+          example: "deepwiki-open"
+        type:
+          type: string
+          description: Repository hosting platform
+          enum: [github, gitlab, bitbucket]
+          example: "github"
+        token:
+          type: string
+          description: Personal access token for private repositories
+          example: "ghp_xxxxxxxxxxxx"
+        localPath:
+          type: string
+          description: Local filesystem path (for local repositories)
+          example: "C:\\Users\\dev\\my-project"
+        repoUrl:
+          type: string
+          description: Full repository URL
+          example: "https://github.com/AsyncFuncAI/deepwiki-open"
+
+    WikiCacheData:
+      type: object
+      description: Cached wiki data structure
+      properties:
+        wiki_structure:
+          $ref: '#/components/schemas/WikiStructureModel'
+        generated_pages:
+          type: object
+          description: Map of page IDs to WikiPage objects
+          additionalProperties:
+            $ref: '#/components/schemas/WikiPage'
+        repo_url:
+          type: string
+          description: Repository URL (legacy field)
+          example: "https://github.com/AsyncFuncAI/deepwiki-open"
+        repo:
+          $ref: '#/components/schemas/RepoInfo'
+        provider:
+          type: string
+          description: LLM provider used for generation
+          example: "google"
+        model:
+          type: string
+          description: LLM model used for generation
+          example: "gemini-2.5-flash"
+
+    WikiCacheRequest:
+      type: object
+      required:
+        - repo
+        - language
+        - wiki_structure
+        - generated_pages
+        - provider
+        - model
+      properties:
+        repo:
+          $ref: '#/components/schemas/RepoInfo'
+        language:
+          type: string
+          description: Wiki content language
+          example: "en"
+        wiki_structure:
+          $ref: '#/components/schemas/WikiStructureModel'
+        generated_pages:
+          type: object
+          description: Map of page IDs to WikiPage objects
+          additionalProperties:
+            $ref: '#/components/schemas/WikiPage'
+        provider:
+          type: string
+          description: LLM provider
+          example: "google"
+        model:
+          type: string
+          description: LLM model
+          example: "gemini-2.5-flash"
+
+    WikiExportRequest:
+      type: object
+      required:
+        - repo_url
+        - pages
+        - format
+      properties:
+        repo_url:
+          type: string
+          description: Repository URL
+          example: "https://github.com/AsyncFuncAI/deepwiki-open"
+        pages:
+          type: array
+          description: Wiki pages to export
+          items:
+            $ref: '#/components/schemas/WikiPage'
+        format:
+          type: string
+          description: Export format
+          enum: [markdown, json]
+          example: "markdown"
+
+    # === Model Configuration Schemas ===
+    Model:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+          description: Model identifier
+          example: "gemini-2.5-flash"
+        name:
+          type: string
+          description: Display name for the model
+          example: "gemini-2.5-flash"
+
+    Provider:
+      type: object
+      required:
+        - id
+        - name
+        - models
+      properties:
+        id:
+          type: string
+          description: Provider identifier
+          example: "google"
+        name:
+          type: string
+          description: Display name for the provider
+          example: "Google"
+        models:
+          type: array
+          description: Available models for this provider
+          items:
+            $ref: '#/components/schemas/Model'
+        supportsCustomModel:
+          type: boolean
+          description: Whether custom model names can be entered
+          default: false
+          example: true
+
+    ModelConfig:
+      type: object
+      required:
+        - providers
+        - defaultProvider
+      properties:
+        providers:
+          type: array
+          description: List of available model providers
+          items:
+            $ref: '#/components/schemas/Provider'
+        defaultProvider:
+          type: string
+          description: Default provider ID
+          example: "google"
+
+    # === Auth Schemas ===
+    AuthorizationConfig:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          description: Authorization code to validate
+          example: "your-secret-code"
+
+    # === Chat Schemas ===
+    ChatMessage:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          description: Message sender role
+          enum: [user, assistant]
+          example: "user"
+        content:
+          type: string
+          description: Message content
+          example: "What is the main purpose of this project?"
+
+    ChatCompletionRequest:
+      type: object
+      required:
+        - repo_url
+        - messages
+      properties:
+        repo_url:
+          type: string
+          description: |
+            URL of the repository to query.
+            Supports:
+            - GitHub: `https://github.com/owner/repo`
+            - GitLab: `https://gitlab.com/owner/repo`
+            - BitBucket: `https://bitbucket.org/owner/repo`
+            - Local: `file:///path/to/repo` or `C:\path\to\repo`
+          example: "https://github.com/AsyncFuncAI/deepwiki-open"
+        messages:
+          type: array
+          description: Conversation history
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+          example:
+            - role: "user"
+              content: "What is this project about?"
+            - role: "assistant"
+              content: "This project is..."
+            - role: "user"
+              content: "How do I install it?"
+        filePath:
+          type: string
+          description: Optional path to a specific file to include in context
+          example: "src/index.ts"
+        token:
+          type: string
+          description: Personal access token for private repositories
+          example: "ghp_xxxxxxxxxxxx"
+        type:
+          type: string
+          description: Repository hosting platform type
+          default: "github"
+          enum: [github, gitlab, bitbucket]
+          example: "github"
+        provider:
+          type: string
+          description: LLM provider to use
+          default: "google"
+          enum: [google, openai, openrouter, ollama, bedrock, azure, dashscope]
+          example: "google"
+        model:
+          type: string
+          description: Specific model name (uses provider default if not specified)
+          example: "gemini-2.5-flash"
+        language:
+          type: string
+          description: Language for response generation
+          default: "en"
+          enum: [en, ja, zh, zh-tw, es, kr, vi, pt-br, fr, ru]
+          example: "en"
+        excluded_dirs:
+          type: string
+          description: |
+            Newline-separated list of directories to exclude from processing.
+            Example: `node_modules\ndist\nbuild`
+          example: "node_modules\ndist"
+        excluded_files:
+          type: string
+          description: Newline-separated list of file patterns to exclude
+          example: "*.lock\n*.min.js"
+        included_dirs:
+          type: string
+          description: Newline-separated list of directories to exclusively include
+          example: "src\nlib"
+        included_files:
+          type: string
+          description: Newline-separated list of file patterns to exclusively include
+          example: "*.ts\n*.tsx"
+
+  # === Processed Project Schema ===
+  ProcessedProjectEntry:
+    type: object
+    description: Entry representing a processed project in the cache
+    required:
+      - id
+      - owner
+      - repo
+      - name
+      - repo_type
+      - submittedAt
+      - language
+    properties:
+      id:
+        type: string
+        description: Cache filename (used as unique identifier)
+        example: "deepwiki_cache_github_AsyncFuncAI_deepwiki-open_en.json"
+      owner:
+        type: string
+        description: Repository owner/organization
+        example: "AsyncFuncAI"
+      repo:
+        type: string
+        description: Repository name
+        example: "deepwiki-open"
+      name:
+        type: string
+        description: Display name in format `owner/repo`
+        example: "AsyncFuncAI/deepwiki-open"
+      repo_type:
+        type: string
+        description: Repository hosting platform
+        enum: [github, gitlab, bitbucket]
+        example: "github"
+      submittedAt:
+        type: integer
+        description: Unix timestamp in milliseconds when the project was last processed
+        example: 1705312200000
+      language:
+        type: string
+        description: Wiki content language code
+        example: "en"
+
+  # ========================================
+  # 功能一：闯关式代码阅读指南 Schemas（新增）
+  # ========================================
+
+  ReadingGuideLevel:
+    type: object
+    description: 单个阅读关卡
+    required:
+      - id
+      - title
+      - goal
+      - pages
+    properties:
+      id:
+        type: string
+        description: 关卡唯一标识
+        example: "level-1"
+      title:
+        type: string
+        description: 关卡标题
+        example: "第一关：项目概览"
+      goal:
+        type: string
+        description: 学习目标
+        example: "了解项目的整体架构和核心功能"
+      pages:
+        type: array
+        description: 本关卡包含的页面ID列表
+        items:
+          type: string
+        example: ["overview", "architecture"]
+      tips:
+        type: array
+        description: 阅读提示
+        items:
+          type: string
+        example: ["建议先阅读README", "注意核心依赖关系"]
+
+  ReadingGuide:
+    type: object
+    description: 完整的阅读指南
+    required:
+      - title
+      - levels
+    properties:
+      title:
+        type: string
+        description: 阅读指南标题
+        example: "DeepWiki-Open 学习路线"
+      levels:
+        type: array
+        description: 关卡列表（按顺序）
+        items:
+          $ref: '#/components/schemas/ReadingGuideLevel'
+
+  ReadingProgress:
+    type: object
+    description: 用户阅读进度
+    required:
+      - completedPageIds
+      - updatedAt
+    properties:
+      completedPageIds:
+        type: array
+        description: 已完成阅读的页面ID列表
+        items:
+          type: string
+        example: ["overview", "installation", "quick-start"]
+      currentLevelId:
+        type: string
+        description: 当前所在关卡ID
+        example: "level-2"
+      updatedAt:
+        type: integer
+        format: int64
+        description: 最后更新时间（Unix时间戳，毫秒）
+        example: 1705312200000
+
+  ReadingGuideGenerateRequest:
+    type: object
+    description: 生成阅读指南请求
+    required:
+      - owner
+      - repo
+      - repo_type
+      - language
+      - wiki_structure
+    properties:
+      owner:
+        type: string
+        description: 仓库所有者
+        example: "AsyncFuncAI"
+      repo:
+        type: string
+        description: 仓库名称
+        example: "deepwiki-open"
+      repo_type:
+        type: string
+        description: 仓库类型
+        enum: [github, gitlab, bitbucket]
+        example: "github"
+      language:
+        type: string
+        description: Wiki语言
+        example: "en"
+      wiki_structure:
+        $ref: '#/components/schemas/WikiStructureModel'
+
+  ReadingProgressUpdateRequest:
+    type: object
+    description: 更新阅读进度请求
+    required:
+      - owner
+      - repo
+      - repo_type
+      - language
+      - completed_page_ids
+    properties:
+      owner:
+        type: string
+        description: 仓库所有者
+        example: "AsyncFuncAI"
+      repo:
+        type: string
+        description: 仓库名称
+        example: "deepwiki-open"
+      repo_type:
+        type: string
+        description: 仓库类型
+        enum: [github, gitlab, bitbucket]
+        example: "github"
+      language:
+        type: string
+        description: Wiki语言
+        example: "en"
+      completed_page_ids:
+        type: array
+        description: 已完成的页面ID列表
+        items:
+          type: string
+        example: ["overview", "installation"]
+      current_level_id:
+        type: string
+        description: 当前关卡ID
+        example: "level-2"
+
+  # ========================================
+  # 功能二：专有名词术语 Schemas（新增）
+  # ========================================
+
+  GlossaryTerm:
+    type: object
+    description: 术语条目
+    required:
+      - term
+      - label
+      - googleQuery
+    properties:
+      term:
+        type: string
+        description: 术语原文（英文）
+        example: "RAG"
+      label:
+        type: string
+        description: 术语标签/中文释义
+        example: "检索增强生成"
+      wikiUrl:
+        type: string
+        description: Wikipedia链接（可选）
+        example: "https://en.wikipedia.org/wiki/Retrieval-augmented_generation"
+      googleQuery:
+        type: string
+        description: Google搜索关键词
+        example: "RAG LLM retrieval augmented generation"
+      description:
+        type: string
+        description: 简短定义/描述
+        example: "一种结合检索和生成的AI架构，用于提高LLM回答的准确性"
+
+  # ========================================
+  # 功能三：Wiki搜索 Schemas（新增）
+  # ========================================
+
+  WikiSearchResult:
+    type: object
+    description: Wiki搜索结果项
+    required:
+      - pageId
+      - title
+      - snippet
+      - matchedField
+      - score
+    properties:
+      pageId:
+        type: string
+        description: 页面ID
+        example: "overview"
+      title:
+        type: string
+        description: 页面标题
+        example: "Overview"
+      snippet:
+        type: string
+        description: 匹配内容的摘要片段（高亮关键词用**包裹）
+        example: "DeepWiki uses **RAG** for intelligent retrieval and generation..."
+      matchedField:
+        type: string
+        description: 匹配的字段类型
+        enum: [title, content, filePath]
+        example: "content"
+      score:
+        type: number
+        description: 匹配得分
+        example: 85.5
+      highlights:
+        type: array
+        description: 高亮位置信息（可选）
+        items:
+          type: object
+          properties:
+            start:
+              type: integer
+            end:
+              type: integer
+
+  WikiSearchOptions:
+    type: object
+    description: 搜索选项
+    properties:
+      mode:
+        type: string
+        description: 搜索模式
+        enum: [all, title, content, filePath]
+        default: all
+        example: "all"
+        limit:
+          type: integer
+          description: 返回结果数量限制
+          default: 20
+          minimum: 1
+          maximum: 100
+          example: 20
