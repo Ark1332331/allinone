@@ -1,13 +1,12 @@
 import os
 import logging
-from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from typing import List, Optional, Dict, Any, Literal
 import json
 from datetime import datetime
 from pydantic import BaseModel, Field
-import google.generativeai as genai
 import asyncio
 
 # Configure logging
@@ -166,32 +165,12 @@ class ModelConfig(BaseModel):
     defaultProvider: str = Field(..., description="ID of the default provider")
 
 
-class AuthorizationConfig(BaseModel):
-    code: str = Field(..., description="Authorization code")
-
-
-from api.config import configs, WIKI_AUTH_MODE, WIKI_AUTH_CODE
-
-
-@app.get("/lang/config")
-async def get_lang_config():
-    return configs["lang_config"]
+from api.config import configs
 
 
 @app.get("/auth/status")
 async def get_auth_status():
-    """
-    Check if authentication is required for the wiki.
-    """
-    return {"auth_required": WIKI_AUTH_MODE}
-
-
-@app.post("/auth/validate")
-async def validate_auth_code(request: AuthorizationConfig):
-    """
-    Check authorization code.
-    """
-    return {"success": WIKI_AUTH_CODE == request.code}
+    return {"auth_required": False}
 
 
 @app.get("/models/config", response_model=ModelConfig)
@@ -210,7 +189,7 @@ async def get_model_config():
 
         # Create providers from the config file
         providers = []
-        default_provider = configs.get("default_provider", "google")
+        default_provider = configs.get("default_provider", "openai")
 
         # Add provider configuration based on config.py
         for provider_id, provider_config in configs["providers"].items():
@@ -430,14 +409,8 @@ def generate_json_export(repo_url: str, pages: List[WikiPage]) -> str:
 
 # Import the simplified chat implementation
 from api.simple_chat import chat_completions_stream
-from api.websocket_wiki import handle_websocket_chat
 
-# Add the chat_completions_stream endpoint to the main app
 app.add_api_route("/chat/completions/stream", chat_completions_stream, methods=["POST"])
-
-# Add the WebSocket endpoint
-# FastAPI 0.95+ 使用 add_api_websocket_route 注册 WebSocket 路由
-app.add_api_websocket_route("/ws/chat", handle_websocket_chat)
 
 # --- Wiki Cache Helper Functions ---
 
@@ -576,11 +549,6 @@ async def delete_wiki_cache(
     supported_langs = configs["lang_config"]["supported_languages"]
     if not supported_langs.__contains__(language):
         raise HTTPException(status_code=400, detail="Language is not supported")
-
-    if WIKI_AUTH_MODE:
-        logger.info("check the authorization code")
-        if not authorization_code or WIKI_AUTH_CODE != authorization_code:
-            raise HTTPException(status_code=401, detail="Authorization code is invalid")
 
     logger.info(
         f"Attempting to delete wiki cache for {owner}/{repo} ({repo_type}), lang: {language}"
@@ -721,3 +689,4 @@ async def get_processed_projects():
             status_code=500,
             detail="Failed to list processed projects from server cache.",
         )
+

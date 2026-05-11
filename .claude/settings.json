@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(yarn *)",
+      "Bash(npm *)",
+      "Bash(poetry *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pip *)",
+      "Bash(docker compose *)",
+      "Bash(docker-compose *)",
+      "Bash(docker ps*)",
+      "Bash(docker logs *)",
+      "Bash(docker inspect *)",
+      "Bash(gh pr *)",
+      "Bash(gh issue *)",
+      "Bash(gh run *)",
+      "Bash(gh repo *)",
+      "Bash(gh auth *)",
+      "Bash(gh api *)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(chmod *)",
+      "Bash(tar *)",
+      "Bash(unzip *)",
+      "Bash(zip *)"
+    ]
+  }
+}

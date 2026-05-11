@@ -189,3 +189,29 @@ This file contains...
 - When showing code, include line numbers and file paths when relevant
 - Use markdown formatting to improve readability
 </style>"""
+
+GLOSSARY_EXTRACT_PROMPT = """从以下技术文档中识别专业术语和概念。
+
+规则：
+1. 只提取技术术语、框架名、算法名、协议名等专业名词
+2. 过滤常见通用词汇（如"功能"、"方法"、"文件"）
+3. 返回术语的标准写法（区分大小写，如 "FAISS" 而非 "faiss"）
+4. 提供中文释义和简短定义
+5. 生成适合 Google 搜索的关键词组合
+6. 尝试提供 Wikipedia 链接（格式：https://en.wikipedia.org/wiki/术语名）
+
+输出格式（严格 JSON，不要包裹 markdown 代码块）：
+{
+	"terms": [
+		{
+			"term": "RAG",
+			"label": "检索增强生成",
+			"wikiUrl": "https://en.wikipedia.org/wiki/Retrieval-augmented_generation",
+			"googleQuery": "RAG retrieval augmented generation LLM",
+			"description": "一种结合信息检索和文本生成的AI架构模式"
+		}
+	]
+}
+
+文档内容：
+{content}"""

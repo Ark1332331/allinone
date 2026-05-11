@@ -6,12 +6,7 @@ import Link from 'next/link';
 import { FaWikipediaW, FaGithub, FaCoffee, FaTwitter } from 'react-icons/fa';
 import ThemeToggle from '@/components/theme-toggle';
 import Mermaid from '../components/Mermaid';
-import ConfigurationModal from '@/components/ConfigurationModal';
-import ProcessedProjects from '@/components/ProcessedProjects';
 import { extractUrlPath, extractUrlDomain } from '@/utils/urlDecoder';
-import { useProcessedProjects } from '@/hooks/useProcessedProjects';
-
-import { useLanguage } from '@/contexts/LanguageContext';
 
 // Define the demo mermaid charts outside the component
 const DEMO_FLOW_CHART = `graph TD
@@ -44,15 +39,15 @@ const DEMO_SEQUENCE_CHART = `sequenceDiagram
 
 export default function Home() {
   const router = useRouter();
-  const { language, setLanguage, messages, supportedLanguages } = useLanguage();
-  const { projects, isLoading: projectsLoading } = useProcessedProjects();
+  const language = 'zh';
+  const supportedLanguages = { zh: '中文' };
 
   // Create a simple translation function
   const t = (key: string, params: Record<string, string | number> = {}): string => {
     // Split the key by dots to access nested properties
     const keys = key.split('.');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let value: any = messages;
+    let value: any = {};
 
     // Navigate through the nested properties
     for (const k of keys) {
@@ -144,11 +139,6 @@ export default function Home() {
   const [authRequired, setAuthRequired] = useState<boolean>(false);
   const [authCode, setAuthCode] = useState<string>('');
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
-
-  // Sync the language context with the selectedLanguage state
-  useEffect(() => {
-    setLanguage(selectedLanguage);
-  }, [selectedLanguage, setLanguage]);
 
   // Fetch authentication status on component mount
   useEffect(() => {
@@ -440,43 +430,6 @@ export default function Home() {
             </div>
           </form>
 
-          {/* Configuration Modal */}
-          <ConfigurationModal
-            isOpen={isConfigModalOpen}
-            onClose={() => setIsConfigModalOpen(false)}
-            repositoryInput={repositoryInput}
-            selectedLanguage={selectedLanguage}
-            setSelectedLanguage={setSelectedLanguage}
-            supportedLanguages={supportedLanguages}
-            isComprehensiveView={isComprehensiveView}
-            setIsComprehensiveView={setIsComprehensiveView}
-            provider={provider}
-            setProvider={setProvider}
-            model={model}
-            setModel={setModel}
-            isCustomModel={isCustomModel}
-            setIsCustomModel={setIsCustomModel}
-            customModel={customModel}
-            setCustomModel={setCustomModel}
-            selectedPlatform={selectedPlatform}
-            setSelectedPlatform={setSelectedPlatform}
-            accessToken={accessToken}
-            setAccessToken={setAccessToken}
-            excludedDirs={excludedDirs}
-            setExcludedDirs={setExcludedDirs}
-            excludedFiles={excludedFiles}
-            setExcludedFiles={setExcludedFiles}
-            includedDirs={includedDirs}
-            setIncludedDirs={setIncludedDirs}
-            includedFiles={includedFiles}
-            setIncludedFiles={setIncludedFiles}
-            onSubmit={handleGenerateWiki}
-            isSubmitting={isSubmitting}
-            authRequired={authRequired}
-            authCode={authCode}
-            setAuthCode={setAuthCode}
-            isAuthLoading={isAuthLoading}
-          />
 
         </div>
       </header>
@@ -485,32 +438,6 @@ export default function Home() {
         <div
           className="min-h-full flex flex-col items-center p-8 pt-10 bg-[var(--card-bg)] rounded-lg shadow-custom card-japanese">
 
-          {/* Conditionally show processed projects or welcome content */}
-          {!projectsLoading && projects.length > 0 ? (
-            <div className="w-full">
-              {/* Header section for existing projects */}
-              <div className="flex flex-col items-center w-full max-w-2xl mb-8 mx-auto">
-                <div className="flex flex-col sm:flex-row items-center mb-6 gap-4">
-                  <div className="relative">
-                    <div className="absolute -inset-1 bg-[var(--accent-primary)]/20 rounded-full blur-md"></div>
-                    <FaWikipediaW className="text-5xl text-[var(--accent-primary)] relative z-10" />
-                  </div>
-                  <div className="text-center sm:text-left">
-                    <h2 className="text-2xl font-bold text-[var(--foreground)] font-serif mb-1">{t('projects.existingProjects')}</h2>
-                    <p className="text-[var(--accent-primary)] text-sm max-w-md">{t('projects.browseExisting')}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Show processed projects */}
-              <ProcessedProjects
-                showHeader={false}
-                maxItems={6}
-                messages={messages}
-                className="w-full"
-              />
-            </div>
-          ) : (
             <>
               {/* Header section */}
               <div className="flex flex-col items-center w-full max-w-2xl mb-8">

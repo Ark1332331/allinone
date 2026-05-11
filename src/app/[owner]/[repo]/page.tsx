@@ -3,10 +3,8 @@
 
 import Ask from '@/components/Ask';
 import Markdown from '@/components/Markdown';
-import ModelSelectionModal from '@/components/ModelSelectionModal';
 import ThemeToggle from '@/components/theme-toggle';
 import WikiTreeView from '@/components/WikiTreeView';
-import { useLanguage } from '@/contexts/LanguageContext';
 import { RepoInfo } from '@/types/repoinfo';
 import getRepoUrl from '@/utils/getRepoUrl';
 import { extractUrlDomain, extractUrlPath } from '@/utils/urlDecoder';
@@ -209,8 +207,7 @@ export default function RepoWikiPage() {
         ? 'github'
         : searchParams.get('type') || 'github';
 
-  // Import language context for translations
-  const { messages } = useLanguage();
+  const messages = {} as Record<string, Record<string, string> | undefined>;
 
   // Initialize repo info
   const repoInfo = useMemo<RepoInfo>(() => ({
@@ -1952,7 +1949,6 @@ IMPORTANT:
     }
   };
 
-  const [isModelSelectionModalOpen, setIsModelSelectionModalOpen] = useState(false);
 
   return (
     <div className="h-screen paper-texture p-4 md:p-8 flex flex-col">
@@ -2105,7 +2101,7 @@ IMPORTANT:
               {/* Refresh Wiki button */}
               <div className="mb-5">
                 <button
-                  onClick={() => setIsModelSelectionModalOpen(true)}
+                  style={{display: 'none'}}
                   disabled={isLoading}
                   className="flex items-center w-full text-xs px-3 py-2 bg-[var(--background)] text-[var(--foreground)] rounded-md hover:bg-[var(--background)]/80 disabled:opacity-50 disabled:cursor-not-allowed border border-[var(--border-color)] transition-colors hover:cursor-pointer"
                 >
@@ -2260,9 +2256,7 @@ IMPORTANT:
         </div>
       </div>
 
-      <ModelSelectionModal
-        isOpen={isModelSelectionModalOpen}
-        onClose={() => setIsModelSelectionModalOpen(false)}
+      <div style={{display: 'none'}} data-is-open={false} data-on-close={() => {}}
         provider={selectedProviderState}
         setProvider={setSelectedProviderState}
         model={selectedModelState}

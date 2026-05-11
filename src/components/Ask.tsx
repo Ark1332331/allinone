@@ -3,11 +3,8 @@
 import React, {useState, useRef, useEffect} from 'react';
 import {FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import Markdown from './Markdown';
-import { useLanguage } from '@/contexts/LanguageContext';
 import RepoInfo from '@/types/repoinfo';
 import getRepoUrl from '@/utils/getRepoUrl';
-import ModelSelectionModal from './ModelSelectionModal';
-import { createChatWebSocket, closeWebSocket, ChatCompletionRequest } from '@/utils/websocketClient';
 
 interface Model {
   id: string;
@@ -31,6 +28,16 @@ interface ResearchStage {
   content: string;
   iteration: number;
   type: 'plan' | 'update' | 'conclusion';
+}
+
+interface ChatCompletionRequest {
+  repo_url: string;
+  type?: string;
+  messages: { role: 'user' | 'assistant'; content: string }[];
+  provider?: string;
+  model?: string;
+  language?: string;
+  token?: string;
 }
 
 interface AskProps {
@@ -66,7 +73,7 @@ const Ask: React.FC<AskProps> = ({
   const [isComprehensiveView, setIsComprehensiveView] = useState(true);
 
   // Get language context for translations
-  const { messages } = useLanguage();
+  const messages = {} as Record<string, Record<string, string> | undefined>;
 
   // Research navigation state
   const [researchStages, setResearchStages] = useState<ResearchStage[]>([]);
@@ -100,12 +107,6 @@ const Ask: React.FC<AskProps> = ({
     }
   }, [response]);
 
-  // Close WebSocket when component unmounts
-  useEffect(() => {
-    return () => {
-      closeWebSocket(webSocketRef.current);
-    };
-  }, []);
 
   useEffect(() => {
     providerRef.current = provider;
@@ -274,8 +275,6 @@ const Ask: React.FC<AskProps> = ({
     }
   };
 
-  // WebSocket reference
-  const webSocketRef = useRef<WebSocket | null>(null);
 
   // Function to continue research automatically
   const continueResearch = async () => {
@@ -328,153 +327,65 @@ const Ask: React.FC<AskProps> = ({
         requestBody.token = repoInfo.token;
       }
 
-      // Close any existing WebSocket connection
-      closeWebSocket(webSocketRef.current);
-
       let fullResponse = '';
 
-      // Create a new WebSocket connection
-      webSocketRef.current = createChatWebSocket(
-        requestBody,
-        // Message handler
-        (message: string) => {
-          fullResponse += message;
+      try {
+        const apiResponse = await fetch('/api/chat/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (!apiResponse.ok) throw new Error(`API error: ${apiResponse.status}`);
+
+        const reader = apiResponse.body?.getReader();
+        const decoder = new TextDecoder();
+        if (!reader) throw new Error('Failed to get response reader');
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          fullResponse += decoder.decode(value, { stream: true });
           setResponse(fullResponse);
 
-          // Extract research stage if this is a deep research response
           if (deepResearch) {
             const stage = extractResearchStage(fullResponse, newIteration);
             if (stage) {
-              // Add the stage to the research stages if it's not already there
               setResearchStages(prev => {
-                // Check if we already have this stage
                 const existingStageIndex = prev.findIndex(s => s.iteration === stage.iteration && s.type === stage.type);
                 if (existingStageIndex >= 0) {
-                  // Update existing stage
                   const newStages = [...prev];
                   newStages[existingStageIndex] = stage;
                   return newStages;
-                } else {
-                  // Add new stage
-                  return [...prev, stage];
                 }
+                return [...prev, stage];
               });
-
-              // Update current stage index to the latest stage
               setCurrentStageIndex(researchStages.length);
             }
           }
-        },
-        // Error handler
-        (error: Event) => {
-          console.error('WebSocket error:', error);
-          setResponse(prev => prev + '\n\nError: WebSocket connection failed. Falling back to HTTP...');
-
-          // Fallback to HTTP if WebSocket fails
-          fallbackToHttp(requestBody);
-        },
-        // Close handler
-        () => {
-          // Check if research is complete when the WebSocket closes
-          const isComplete = checkIfResearchComplete(fullResponse);
-
-          // Force completion after a maximum number of iterations (5)
-          const forceComplete = newIteration >= 5;
-
-          if (forceComplete && !isComplete) {
-            // If we're forcing completion, append a comprehensive conclusion to the response
-            const completionNote = "\n\n## Final Conclusion\nAfter multiple iterations of deep research, we've gathered significant insights about this topic. This concludes our investigation process, having reached the maximum number of research iterations. The findings presented across all iterations collectively form our comprehensive answer to the original question.";
-            fullResponse += completionNote;
-            setResponse(fullResponse);
-            setResearchComplete(true);
-          } else {
-            setResearchComplete(isComplete);
-          }
-
-          setIsLoading(false);
         }
-      );
+
+        const isComplete = checkIfResearchComplete(fullResponse);
+        const forceComplete = newIteration >= 5;
+        if (forceComplete && !isComplete) {
+          const completionNote = "\n\n## Final Conclusion\nAfter multiple iterations of deep research, we've gathered significant insights about this topic. This concludes our investigation process.";
+          fullResponse += completionNote;
+          setResponse(fullResponse);
+          setResearchComplete(true);
+        } else {
+          setResearchComplete(isComplete);
+        }
+      } catch (error) {
+        console.error('Error during API call:', error);
+        setResponse(prev => prev + '\n\nError: Failed to continue research. Please try again.');
+        setResearchComplete(true);
+      } finally {
+        setIsLoading(false);
+      }
     } catch (error) {
       console.error('Error during API call:', error);
       setResponse(prev => prev + '\n\nError: Failed to continue research. Please try again.');
       setResearchComplete(true);
-      setIsLoading(false);
-    }
-  };
-
-  // Fallback to HTTP if WebSocket fails
-  const fallbackToHttp = async (requestBody: ChatCompletionRequest) => {
-    try {
-      // Make the API call using HTTP
-      const apiResponse = await fetch(`/api/chat/stream`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      if (!apiResponse.ok) {
-        throw new Error(`API error: ${apiResponse.status}`);
-      }
-
-      // Process the streaming response
-      const reader = apiResponse.body?.getReader();
-      const decoder = new TextDecoder();
-
-      if (!reader) {
-        throw new Error('Failed to get response reader');
-      }
-
-      // Read the stream
-      let fullResponse = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        fullResponse += chunk;
-        setResponse(fullResponse);
-
-        // Extract research stage if this is a deep research response
-        if (deepResearch) {
-          const stage = extractResearchStage(fullResponse, researchIteration);
-          if (stage) {
-            // Add the stage to the research stages
-            setResearchStages(prev => {
-              const existingStageIndex = prev.findIndex(s => s.iteration === stage.iteration && s.type === stage.type);
-              if (existingStageIndex >= 0) {
-                const newStages = [...prev];
-                newStages[existingStageIndex] = stage;
-                return newStages;
-              } else {
-                return [...prev, stage];
-              }
-            });
-          }
-        }
-      }
-
-      // Check if research is complete
-      const isComplete = checkIfResearchComplete(fullResponse);
-
-      // Force completion after a maximum number of iterations (5)
-      const forceComplete = researchIteration >= 5;
-
-      if (forceComplete && !isComplete) {
-        // If we're forcing completion, append a comprehensive conclusion to the response
-        const completionNote = "\n\n## Final Conclusion\nAfter multiple iterations of deep research, we've gathered significant insights about this topic. This concludes our investigation process, having reached the maximum number of research iterations. The findings presented across all iterations collectively form our comprehensive answer to the original question.";
-        fullResponse += completionNote;
-        setResponse(fullResponse);
-        setResearchComplete(true);
-      } else {
-        setResearchComplete(isComplete);
-      }
-    } catch (error) {
-      console.error('Error during HTTP fallback:', error);
-      setResponse(prev => prev + '\n\nError: Failed to get a response. Please try again.');
-      setResearchComplete(true);
-    } finally {
       setIsLoading(false);
     }
   };
@@ -570,54 +481,51 @@ const Ask: React.FC<AskProps> = ({
         requestBody.token = repoInfo.token;
       }
 
-      // Close any existing WebSocket connection
-      closeWebSocket(webSocketRef.current);
-
       let fullResponse = '';
 
-      // Create a new WebSocket connection
-      webSocketRef.current = createChatWebSocket(
-        requestBody,
-        // Message handler
-        (message: string) => {
-          fullResponse += message;
+      try {
+        const apiResponse = await fetch('/api/chat/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (!apiResponse.ok) throw new Error(`API error: ${apiResponse.status}`);
+
+        const reader = apiResponse.body?.getReader();
+        const decoder = new TextDecoder();
+        if (!reader) throw new Error('Failed to get response reader');
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          fullResponse += decoder.decode(value, { stream: true });
           setResponse(fullResponse);
 
-          // Extract research stage if this is a deep research response
           if (deepResearch) {
-            const stage = extractResearchStage(fullResponse, 1); // First iteration
+            const stage = extractResearchStage(fullResponse, 1);
             if (stage) {
-              // Add the stage to the research stages
               setResearchStages([stage]);
               setCurrentStageIndex(0);
             }
           }
-        },
-        // Error handler
-        (error: Event) => {
-          console.error('WebSocket error:', error);
-          setResponse(prev => prev + '\n\nError: WebSocket connection failed. Falling back to HTTP...');
-
-          // Fallback to HTTP if WebSocket fails
-          fallbackToHttp(requestBody);
-        },
-        // Close handler
-        () => {
-          // If deep research is enabled, check if we should continue
-          if (deepResearch) {
-            const isComplete = checkIfResearchComplete(fullResponse);
-            setResearchComplete(isComplete);
-
-            // If not complete, start the research process
-            if (!isComplete) {
-              setResearchIteration(1);
-              // The continueResearch function will be triggered by the useEffect
-            }
-          }
-
-          setIsLoading(false);
         }
-      );
+
+        if (deepResearch) {
+          const isComplete = checkIfResearchComplete(fullResponse);
+          setResearchComplete(isComplete);
+          if (!isComplete) {
+            setResearchIteration(1);
+          }
+        }
+
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error during API call:', error);
+        setResponse(prev => prev + '\n\nError: Failed to get a response. Please try again.');
+        setResearchComplete(true);
+        setIsLoading(false);
+      }
     } catch (error) {
       console.error('Error during API call:', error);
       setResponse(prev => prev + '\n\nError: Failed to get a response. Please try again.');
@@ -640,20 +548,6 @@ const Ask: React.FC<AskProps> = ({
   return (
     <div>
       <div className="p-4">
-        <div className="flex items-center justify-end mb-4">
-          {/* Model selection button */}
-          <button
-            type="button"
-            onClick={() => setIsModelSelectionModalOpen(true)}
-            className="text-xs px-2.5 py-1 rounded border border-[var(--border-color)]/40 bg-[var(--background)]/10 text-[var(--foreground)]/80 hover:bg-[var(--background)]/30 hover:text-[var(--foreground)] transition-colors flex items-center gap-1.5"
-          >
-            <span>{selectedProvider}/{isCustomSelectedModel ? customSelectedModel : selectedModel}</span>
-            <svg className="h-3.5 w-3.5 text-[var(--accent-primary)]/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-          </button>
-        </div>
-
         {/* Question input */}
         <form onSubmit={handleSubmit} className="mt-4">
           <div className="relative">
@@ -899,28 +793,6 @@ const Ask: React.FC<AskProps> = ({
         )}
       </div>
 
-      {/* Model Selection Modal */}
-      <ModelSelectionModal
-        isOpen={isModelSelectionModalOpen}
-        onClose={() => setIsModelSelectionModalOpen(false)}
-        provider={selectedProvider}
-        setProvider={setSelectedProvider}
-        model={selectedModel}
-        setModel={setSelectedModel}
-        isCustomModel={isCustomSelectedModel}
-        setIsCustomModel={setIsCustomSelectedModel}
-        customModel={customSelectedModel}
-        setCustomModel={setCustomSelectedModel}
-        isComprehensiveView={isComprehensiveView}
-        setIsComprehensiveView={setIsComprehensiveView}
-        showFileFilters={false}
-        onApply={() => {
-          console.log('Model selection applied:', selectedProvider, selectedModel);
-        }}
-        showWikiType={false}
-        authRequired={false}
-        isAuthLoading={false}
-      />
     </div>
   );
 };
