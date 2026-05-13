@@ -1,5 +1,10 @@
 ## DeepWiki-Open 代理指引
 
+### 共享文档入口
+
+- 进入仓库后，先读 `docs/README.md`，再按其中顺序读 `docs/context.md`、`docs/active/current-focus.md`、`docs/active/handoff.md`。
+- 如果 `docs/archive/` 下的历史文档与 `docs/active/`、`docs/specs/` 冲突，优先相信后者。
+
 只记录本仓库里代理最容易猜错或踩坑的事实。
 
 ### 入口与边界

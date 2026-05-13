@@ -1,5 +1,8 @@
 # 后端 B：专有名词高亮与术语检索 — 工作流与任务分解
 
+> Archived spec/reference document.
+> Keep for historical context, not as the default current workflow.
+
 > 本文档由 Opus (Architect) 根据 `MULTI_MODEL_WORKFLOW.md` 流程为**后端 B** 角色生成。
 > 包含完整的任务拆分、执行顺序、Task Spec 以及对 Coding Model 的精确指引。
 

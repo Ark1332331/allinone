@@ -2256,35 +2256,6 @@ IMPORTANT:
         </div>
       </div>
 
-      <div style={{display: 'none'}} data-is-open={false} data-on-close={() => {}}
-        provider={selectedProviderState}
-        setProvider={setSelectedProviderState}
-        model={selectedModelState}
-        setModel={setSelectedModelState}
-        isCustomModel={isCustomSelectedModelState}
-        setIsCustomModel={setIsCustomSelectedModelState}
-        customModel={customSelectedModelState}
-        setCustomModel={setCustomSelectedModelState}
-        isComprehensiveView={isComprehensiveView}
-        setIsComprehensiveView={setIsComprehensiveView}
-        showFileFilters={true}
-        excludedDirs={modelExcludedDirs}
-        setExcludedDirs={setModelExcludedDirs}
-        excludedFiles={modelExcludedFiles}
-        setExcludedFiles={setModelExcludedFiles}
-        includedDirs={modelIncludedDirs}
-        setIncludedDirs={setModelIncludedDirs}
-        includedFiles={modelIncludedFiles}
-        setIncludedFiles={setModelIncludedFiles}
-        onApply={confirmRefresh}
-        showWikiType={true}
-        showTokenInput={effectiveRepoInfo.type !== 'local' && !currentToken} // Show token input if not local and no current token
-        repositoryType={effectiveRepoInfo.type as 'github' | 'gitlab' | 'bitbucket'}
-        authRequired={authRequired}
-        authCode={authCode}
-        setAuthCode={setAuthCode}
-        isAuthLoading={isAuthLoading}
-      />
     </div>
   );
 }

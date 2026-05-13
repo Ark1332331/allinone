@@ -8,8 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-import google.generativeai as genai
-
 from api.config import get_model_config, configs, OPENAI_API_KEY
 from api.data_pipeline import count_tokens, get_file_content
 from api.openai_client import OpenAIClient
@@ -179,6 +177,13 @@ async def chat_completions_stream(request: ChatCompletionRequest):
         async def response_stream():
             try:
                 if request.provider == "google":
+                    try:
+                        import google.generativeai as genai
+                    except Exception as exc:
+                        raise RuntimeError(
+                            "Google provider requested but google.generativeai is unavailable"
+                        ) from exc
+
                     model = genai.GenerativeModel(
                         model_name=model_config["model"],
                         generation_config={

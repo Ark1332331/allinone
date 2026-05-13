@@ -438,8 +438,7 @@ export default function Home() {
         <div
           className="min-h-full flex flex-col items-center p-8 pt-10 bg-[var(--card-bg)] rounded-lg shadow-custom card-japanese">
 
-            <>
-              {/* Header section */}
+            {/* Header section */}
               <div className="flex flex-col items-center w-full max-w-2xl mb-8">
                 <div className="flex flex-col sm:flex-row items-center mb-6 gap-4">
                   <div className="relative">
@@ -489,6 +488,25 @@ export default function Home() {
             </div>
           </div>
 
+          <div className="w-full max-w-2xl mb-8 rounded-lg border border-[var(--accent-primary)]/25 bg-[var(--card-bg)] p-5 shadow-custom">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-[var(--foreground)] font-serif">
+                  学习入口 Beta
+                </h3>
+                <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+                  先把材料带进来，再拿到一个初步判断。当前先支持手动 Markdown，后续再接文件导入和阅读内提问。
+                </p>
+              </div>
+              <Link
+                href="/pre-assessment"
+                className="btn-japanese inline-flex items-center justify-center rounded-lg px-5 py-2.5"
+              >
+                打开学习入口
+              </Link>
+            </div>
+          </div>
+
           {/* Visualization section - improved for better visibility */}
           <div
             className="w-full max-w-2xl mb-8 bg-[var(--background)]/70 rounded-lg p-6 border border-[var(--border-color)]">
@@ -517,9 +535,7 @@ export default function Home() {
                 <Mermaid chart={DEMO_SEQUENCE_CHART} />
               </div>
             </div>
-          </div>
-            </>
-          )}
+            </div>
         </div>
       </main>
 

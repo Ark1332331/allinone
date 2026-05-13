@@ -20,8 +20,12 @@ if __name__ == "__main__":
     # Initialize Google Gemini if API key is set
     from api.config import GOOGLE_API_KEY
     if GOOGLE_API_KEY:
-        import google.generativeai as genai
-        genai.configure(api_key=GOOGLE_API_KEY)
+        try:
+            import google.generativeai as genai
+
+            genai.configure(api_key=GOOGLE_API_KEY)
+        except Exception as exc:
+            logger.warning("GOOGLE_API_KEY is set but google.generativeai is unavailable: %s", exc)
     else:
         logger.warning("GOOGLE_API_KEY not configured")
 

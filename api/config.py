@@ -8,6 +8,7 @@ from typing import List, Dict, Any
 logger = logging.getLogger(__name__)
 
 from api.openai_client import OpenAIClient
+from api.copilot_proxy_client import CopilotProxyClient
 
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
@@ -16,14 +17,21 @@ if OPENAI_API_KEY:
 if GOOGLE_API_KEY:
     os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 
-from adalflow import GoogleGenAIClient
+try:
+    from adalflow import GoogleGenAIClient
+except Exception as exc:
+    GoogleGenAIClient = None
+    logger.warning("GoogleGenAIClient unavailable: %s", exc)
 
 CONFIG_DIR = os.environ.get('DEEPWIKI_CONFIG_DIR', None)
 
 CLIENT_CLASSES = {
     "OpenAIClient": OpenAIClient,
-    "GoogleGenAIClient": GoogleGenAIClient,
+    "CopilotProxyClient": CopilotProxyClient,
 }
+
+if GoogleGenAIClient is not None:
+    CLIENT_CLASSES["GoogleGenAIClient"] = GoogleGenAIClient
 
 def replace_env_placeholders(config):
     pattern = re.compile(r"\$\{([A-Z0-9_]+)\}")
@@ -76,6 +84,11 @@ def load_generator_config():
             if provider_config.get("client_class") in CLIENT_CLASSES:
                 provider_config["model_client"] = CLIENT_CLASSES[provider_config["client_class"]]
             elif provider_id == "google":
+                if GoogleGenAIClient is None:
+                    logger.warning(
+                        "Skipping google provider because GoogleGenAIClient is unavailable"
+                    )
+                    continue
                 provider_config["model_client"] = GoogleGenAIClient
             elif provider_id == "openai":
                 provider_config["model_client"] = OpenAIClient

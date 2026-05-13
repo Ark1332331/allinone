@@ -1,5 +1,8 @@
 # Task Spec: {编号}-{简短名称}
 
+> 用于实现任务拆解的共享模板。
+> 配合 `docs/workflows/multi-agent-collaboration.md` 使用。
+
 > 由 Opus (Architect) 填写。写得越具体，Coding Model 跑偏概率越低。
 > 填完后删除本行及所有 `{ }` 占位符。
 

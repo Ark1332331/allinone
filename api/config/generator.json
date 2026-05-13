@@ -15,6 +15,17 @@
         }
       }
     },
+    "copilot_proxy": {
+      "client_class": "CopilotProxyClient",
+      "default_model": "gpt-4o",
+      "supportsCustomModel": true,
+      "models": {
+        "gpt-4o": {
+          "temperature": 0.7,
+          "top_p": 0.8
+        }
+      }
+    },
     "google": {
       "default_model": "gemini-2.5-flash",
       "supportsCustomModel": true,

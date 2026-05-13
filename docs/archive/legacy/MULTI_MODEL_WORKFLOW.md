@@ -1,5 +1,8 @@
 # 多模型协作 Vibe Coding 工作流（通用版）
 
+> Archived legacy workflow.
+> Historical reference only. The active shared workflow now lives in `docs/workflows/`.
+
 > **核心理念**: Opus 做架构师，Coding Model 做施工队，你做掌控者。
 > **一次任务** = 一张 Task Spec → 一轮 TDD 实现 → 一次审查 → 一次合并。
 >

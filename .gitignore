@@ -75,3 +75,6 @@ certs/
 # other
 Slides
 AGENT.md
+.codex/
+.dev-state/
+dev-processes-test.json

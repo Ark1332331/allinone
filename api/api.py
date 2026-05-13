@@ -8,6 +8,8 @@ import json
 from datetime import datetime
 from pydantic import BaseModel, Field
 import asyncio
+from .routes.learning_entry import router as learning_entry_router
+from .routes.pre_assessment import router as pre_assessment_router
 
 # Configure logging
 from api.logging_config import setup_logging
@@ -27,6 +29,9 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
+
+app.include_router(pre_assessment_router)
+app.include_router(learning_entry_router)
 
 
 # Helper function to get adalflow root path

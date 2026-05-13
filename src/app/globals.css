@@ -1,37 +1,37 @@
 @import "tailwindcss";
 
-/* Define dark mode variant */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
-  /* Japanese aesthetic color palette - light mode */
-  --background: #f8f4e6; /* Warm off-white like washi paper */
-  --foreground: #333333; /* Soft black for text */
-  --shadow-color: rgba(0, 0, 0, 0.05);
-  --accent-primary: #9b7cb9; /* Soft purple (Fuji) */
-  --accent-secondary: #d7c4bb; /* Soft beige (Kinari) */
-  --border-color: #e0d8c8; /* Soft beige border */
-  --card-bg: #fffaf0; /* Slightly warmer than background */
-  --highlight: #e8927c; /* Soft coral (Akane) */
-  --muted: #a59e8c; /* Soft gray-brown (Nezumi) */
-  --link-color: #7c5aa0; /* Slightly darker purple for links */
+  --background: #f3efe6;
+  --foreground: #1f2725;
+  --shadow-color: rgba(31, 39, 37, 0.08);
+  --accent-primary: #2f6b66;
+  --accent-secondary: #c6b38e;
+  --accent-soft: rgba(47, 107, 102, 0.12);
+  --border-color: #d8d0c3;
+  --border-strong: #b9b09f;
+  --card-bg: rgba(251, 248, 241, 0.92);
+  --highlight: #c87647;
+  --muted: #66706a;
+  --link-color: #245d58;
 }
 
 html[data-theme='dark'] {
-  /* Japanese aesthetic color palette - dark mode */
-  --background: #1a1a1a; /* Deep charcoal */
-  --foreground: #f0f0f0; /* Soft white */
-  --shadow-color: rgba(0, 0, 0, 0.2);
-  --accent-primary: #9370db; /* Soft lavender */
-  --accent-secondary: #5d4037; /* Warm brown */
-  --border-color: #2c2c2c; /* Dark border */
-  --card-bg: #222222; /* Slightly lighter than background */
-  --highlight: #e57373; /* Soft red */
-  --muted: #8c8c8c; /* Muted gray */
-  --link-color: #b19cd9; /* Lighter purple for dark mode links */
+  --background: #111716;
+  --foreground: #edf1ec;
+  --shadow-color: rgba(0, 0, 0, 0.24);
+  --accent-primary: #79b4ad;
+  --accent-secondary: #8f7d5d;
+  --accent-soft: rgba(121, 180, 173, 0.16);
+  --border-color: #2a3532;
+  --border-strong: #40504b;
+  --card-bg: rgba(24, 32, 30, 0.92);
+  --highlight: #d79264;
+  --muted: #9aa49d;
+  --link-color: #a5d3cc;
 }
 
-/* Fix for unreadable <select> options in Chrome's dark mode */
 [data-theme="dark"] select option {
   background: var(--background);
 }
@@ -39,96 +39,130 @@ html[data-theme='dark'] {
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: 'Noto Sans JP', sans-serif;
+  --font-sans: 'Noto Sans SC', 'Noto Sans JP', sans-serif;
   --font-mono: 'Geist Mono', monospace;
-  --font-geist-sans: 'Noto Sans JP', sans-serif;
+  --font-geist-sans: 'Noto Sans SC', 'Noto Sans JP', sans-serif;
   --font-geist-mono: 'Geist Mono', monospace;
-  --font-serif-jp: 'Noto Serif JP', serif;
+  --font-serif-jp: 'Noto Serif SC', 'Noto Serif JP', serif;
+}
+
+html {
+  color-scheme: light;
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at top left, rgba(198, 179, 142, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(47, 107, 102, 0.12), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 22%),
+    var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), sans-serif;
 }
 
-/* Custom shadow styles - more subtle for Japanese aesthetic */
+a {
+  color: var(--link-color);
+}
+
 .shadow-custom {
-  box-shadow: 0 4px 8px -2px var(--shadow-color);
+  box-shadow:
+    0 20px 40px -28px var(--shadow-color),
+    0 8px 20px -16px var(--shadow-color);
 }
 
-/* Paper texture background */
 .paper-texture {
-  background-color: var(--card-bg);
-  background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM12 60c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z' fill='%23e0d8c8' fill-opacity='0.1' fill-rule='evenodd'/%3E%3C/svg%3E");
+  background-color: var(--background);
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent),
+    url("data:image/svg+xml,%3Csvg width='120' height='120' viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23b9b09f' fill-opacity='0.08'%3E%3Ccircle cx='18' cy='22' r='2'/%3E%3Ccircle cx='72' cy='18' r='1.6'/%3E%3Ccircle cx='98' cy='48' r='2.2'/%3E%3Ccircle cx='30' cy='84' r='1.8'/%3E%3Ccircle cx='80' cy='92' r='2'/%3E%3Cpath d='M10 54c8 0 8-8 16-8s8 8 16 8 8-8 16-8 8 8 16 8' stroke='%23d8d0c3' stroke-opacity='0.18' fill='none'/%3E%3C/g%3E%3C/svg%3E");
 }
 
-/* Dark mode paper texture */
 html[data-theme='dark'] .paper-texture {
-  background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM12 60c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z' fill='%23333333' fill-opacity='0.1' fill-rule='evenodd'/%3E%3C/svg%3E");
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent),
+    url("data:image/svg+xml,%3Csvg width='120' height='120' viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%2340504b' fill-opacity='0.18'%3E%3Ccircle cx='18' cy='22' r='2'/%3E%3Ccircle cx='72' cy='18' r='1.6'/%3E%3Ccircle cx='98' cy='48' r='2.2'/%3E%3Ccircle cx='30' cy='84' r='1.8'/%3E%3Ccircle cx='80' cy='92' r='2'/%3E%3Cpath d='M10 54c8 0 8-8 16-8s8 8 16 8 8-8 16-8 8 8 16 8' stroke='%232a3532' stroke-opacity='0.45' fill='none'/%3E%3C/g%3E%3C/svg%3E");
 }
 
-/* Japanese-style buttons */
 .btn-japanese {
-  background-color: var(--accent-primary);
-  color: white;
-  border: none;
-  border-radius: 0.25rem;
-  padding: 0.5rem 1.5rem;
-  font-weight: 500;
-  transition: all 0.3s ease;
-  position: relative;
-  overflow: hidden;
+  background:
+    linear-gradient(135deg, var(--accent-primary), color-mix(in srgb, var(--accent-primary) 70%, var(--highlight)));
+  color: #fff;
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    filter 180ms ease;
+  box-shadow: 0 14px 28px -18px rgba(47, 107, 102, 0.55);
 }
 
 .btn-japanese:hover {
-  background-color: var(--highlight);
+  transform: translateY(-1px);
+  filter: saturate(1.04);
+  box-shadow: 0 18px 32px -18px rgba(47, 107, 102, 0.48);
 }
 
-.btn-japanese:before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 0;
-  height: 100%;
-  background-color: rgba(255, 255, 255, 0.2);
-  transition: width 0.3s ease;
+.btn-japanese:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 4px var(--accent-soft),
+    0 18px 32px -18px rgba(47, 107, 102, 0.48);
 }
 
-.btn-japanese:hover:before {
-  width: 100%;
+.btn-japanese:active {
+  transform: translateY(0);
 }
 
-/* Japanese-style inputs */
 .input-japanese {
-  background-color: transparent;
+  background: rgba(255, 255, 255, 0.28);
   border: 1px solid var(--border-color);
-  border-radius: 0.25rem;
-  padding: 0.5rem 1rem;
-  transition: all 0.3s ease;
+  border-radius: 1rem;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+.input-japanese::placeholder {
+  color: color-mix(in srgb, var(--muted) 88%, transparent);
+}
+
+.input-japanese:hover {
+  border-color: var(--border-strong);
 }
 
 .input-japanese:focus {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 2px rgba(155, 124, 185, 0.2);
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow: 0 0 0 4px var(--accent-soft);
   outline: none;
 }
 
-/* Japanese-style cards */
 .card-japanese {
   background-color: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 0.5rem;
+  border-radius: 1rem;
   overflow: hidden;
-  transition: all 0.3s ease;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
 }
 
 .card-japanese:hover {
-  box-shadow: 0 4px 12px var(--shadow-color);
+  border-color: var(--border-strong);
+  box-shadow:
+    0 18px 34px -26px var(--shadow-color),
+    0 10px 18px -16px var(--shadow-color);
 }
 
-/* Line clamp utilities */
 .line-clamp-1 {
   overflow: hidden;
   display: -webkit-box;
@@ -148,4 +182,15 @@ html[data-theme='dark'] .paper-texture {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

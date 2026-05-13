@@ -1,5 +1,8 @@
 # Quick Start - 功能开发指南
 
+> Archived legacy document.
+> Do not treat this file as the current implementation workflow unless explicitly referenced.
+
 本文档提供快速开始开发的步骤，适用于接手三个新功能模块的开发者。
 
 ---

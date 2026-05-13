@@ -1,5 +1,8 @@
 # DeepWiki-Open 功能改造方案
 
+> Archived legacy feature document.
+> This reflects an earlier DeepWiki-Open phase and is not the current primary product plan for `allinone`.
+
 本文档聚焦于三个新增功能模块的设计与实现，采用"一人一模块"的分工方式。
 
 ---
