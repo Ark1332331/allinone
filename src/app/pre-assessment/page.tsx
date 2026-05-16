@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -11,6 +13,11 @@ import {
 } from 'react';
 
 import PreAssessmentCards from '@/components/PreAssessmentCards';
+import {
+  loadModelConfig,
+  MODEL_CONFIG_UPDATED_EVENT,
+  type PersistedModelConfig,
+} from '@/lib/model-config';
 import { LearningEntryImportResponse } from '@/types/learning-entry';
 import { PreAssessmentRequest, PreAssessmentResponse } from '@/types/pre-assessment';
 
@@ -23,6 +30,10 @@ const defaultForm: PreAssessmentRequest = {
   excerpt_context_after: '',
   user_goal_hint: '',
   profile_overrides: {},
+  provider: 'openai',
+  model: 'deepseek-chat',
+  api_key: '',
+  base_url: '',
 };
 
 const quickGoalHints = [
@@ -44,7 +55,24 @@ function previewContent(content: string, maxLength = 260) {
   return `${normalized.slice(0, maxLength)}...`;
 }
 
+const subjectLabels: Record<string, string> = {
+  'advanced-math': '高等数学',
+  probability: '概率论',
+  'deep-learning': '深度学习',
+  'major-course': '专业课',
+};
+
+const entryLabels: Record<string, string> = {
+  book: '书籍 / 教材',
+  exercise: '习题 / 题集',
+  slides: '课件 / PPT',
+  paper: '讲义 / Lecture Notes',
+  exam: '往年卷 / 重点提纲',
+  note: '笔记 / 摘要 / LLM 回复',
+};
+
 export default function PreAssessmentPage() {
+  const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragDepthRef = useRef(0);
   const [form, setForm] = useState<PreAssessmentRequest>(defaultForm);
@@ -61,9 +89,46 @@ export default function PreAssessmentPage() {
     key: K,
     value: PreAssessmentRequest[K]
   ) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => {
+      return { ...prev, [key]: value };
+    });
     setResult(null);
   };
+
+  useEffect(() => {
+    const applySavedConfig = (config: PersistedModelConfig) => {
+      setForm((prev) => ({
+        ...prev,
+        provider: config.provider,
+        model: config.model,
+        base_url: config.base_url,
+        api_key: config.api_key,
+      }));
+    };
+
+    applySavedConfig(loadModelConfig());
+
+    const syncSavedConfig = (event?: Event) => {
+      const customEvent = event as CustomEvent<PersistedModelConfig> | undefined;
+      if (customEvent?.detail) {
+        applySavedConfig(customEvent.detail);
+        return;
+      }
+
+      applySavedConfig(loadModelConfig());
+    };
+
+    window.addEventListener(MODEL_CONFIG_UPDATED_EVENT, syncSavedConfig as EventListener);
+    window.addEventListener('storage', syncSavedConfig);
+
+    return () => {
+      window.removeEventListener(
+        MODEL_CONFIG_UPDATED_EVENT,
+        syncSavedConfig as EventListener
+      );
+      window.removeEventListener('storage', syncSavedConfig);
+    };
+  }, []);
 
   const resetDragState = () => {
     dragDepthRef.current = 0;
@@ -186,6 +251,10 @@ export default function PreAssessmentPage() {
             form.excerpt_context_before?.trim() || undefined,
           excerpt_context_after: form.excerpt_context_after?.trim() || undefined,
           user_goal_hint: form.user_goal_hint?.trim() || undefined,
+          provider: form.provider?.trim() || 'openai',
+          model: form.model?.trim() || undefined,
+          api_key: form.api_key?.trim() || undefined,
+          base_url: form.base_url?.trim() || undefined,
         }),
       });
 
@@ -213,6 +282,14 @@ export default function PreAssessmentPage() {
   const importedPreview = form.full_content
     ? previewContent(form.full_content)
     : '';
+  const subjectKey = searchParams.get('subject') || '';
+  const entryKey = searchParams.get('entry') || '';
+  const subjectLabel = subjectLabels[subjectKey] || '';
+  const entryLabel = entryLabels[entryKey] || '';
+  const contextLabel =
+    subjectLabel && entryLabel
+      ? `${subjectLabel} · ${entryLabel}`
+      : subjectLabel || entryLabel;
 
   return (
     <div className="min-h-dvh paper-texture px-4 py-6 md:px-8 md:py-10">
@@ -229,6 +306,11 @@ export default function PreAssessmentPage() {
               <p className="max-w-2xl text-base leading-7 text-[var(--muted)]">
                 这里不是让你先自诊断痛点，而是先接住材料，帮你抽骨架、识别前置缺口，再给出更像学习助手的起步判断。
               </p>
+              {contextLabel ? (
+                <div className="inline-flex w-fit rounded-full border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/10 px-4 py-2 text-sm text-[var(--accent-primary)]">
+                  当前入口：{contextLabel}
+                </div>
+              ) : null}
               <div className="flex flex-wrap gap-2 pt-1">
                 {supportNotes.map((note) => (
                   <span
@@ -242,10 +324,10 @@ export default function PreAssessmentPage() {
             </div>
 
             <Link
-              href="/"
+              href={subjectKey ? `/learn/${subjectKey}` : '/learn'}
               className="inline-flex w-fit items-center justify-center rounded-full border border-[var(--border-color)] px-4 py-2 text-sm text-[var(--foreground)] transition hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)]/30"
             >
-              返回首页
+              {subjectKey ? '返回资料架' : '返回学习空间'}
             </Link>
           </div>
         </header>

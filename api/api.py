@@ -8,6 +8,8 @@ import json
 from datetime import datetime
 from pydantic import BaseModel, Field
 import asyncio
+from .routes.assistant_memory import router as assistant_memory_router
+from .routes.learning_chat import router as learning_chat_router
 from .routes.learning_entry import router as learning_entry_router
 from .routes.pre_assessment import router as pre_assessment_router
 
@@ -32,6 +34,8 @@ app.add_middleware(
 
 app.include_router(pre_assessment_router)
 app.include_router(learning_entry_router)
+app.include_router(assistant_memory_router)
+app.include_router(learning_chat_router)
 
 
 # Helper function to get adalflow root path

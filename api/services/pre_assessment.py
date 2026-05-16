@@ -9,39 +9,13 @@ from api.config import get_model_config
 from api.models.pre_assessment import PreAssessmentRequest, PreAssessmentResponse
 from api.openai_client import OpenAIClient
 from api.prompts import PRE_ASSESSMENT_SYSTEM_PROMPT
+from api.services.assistant_memory import format_assistant_memory_for_prompt
 
 logger = logging.getLogger(__name__)
 
 MAX_FULL_CONTENT_CHARS = 18000
 MAX_CONTEXT_CHARS = 3000
 MAX_EXCERPT_CHARS = 4000
-
-
-def _read_text_file(path: Path) -> str:
-    if not path.exists():
-        return ""
-
-    try:
-        return path.read_text(encoding="utf-8").strip()
-    except Exception as exc:
-        logger.warning("Failed to read profile context from %s: %s", path, exc)
-        return ""
-
-
-def load_private_profile_context(workspace_root: Path) -> str:
-    private_root = workspace_root / ".codex" / "memory"
-    parts = []
-
-    for relative_path, label in [
-        ("user_profile.md", "User Profile"),
-        ("session_state.md", "Session State"),
-        ("project_direction.md", "Project Direction"),
-    ]:
-        content = _read_text_file(private_root / relative_path)
-        if content:
-            parts.append(f"[{label}]\n{content}")
-
-    return "\n\n".join(parts).strip()
 
 
 def _trim_text(value: Optional[str], max_chars: int) -> str:
@@ -110,7 +84,11 @@ def _extract_json_object(raw_text: str) -> Dict[str, Any]:
 
 
 async def call_pre_assessment_model(
-    prompt: str, provider: str = "openai", model: Optional[str] = None
+    prompt: str,
+    provider: str = "openai",
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
 ) -> str:
     model_config = get_model_config(provider, model)["model_kwargs"]
 
@@ -128,7 +106,7 @@ async def call_pre_assessment_model(
         response = generative_model.generate_content(prompt)
         return getattr(response, "text", "") or ""
 
-    model_client = OpenAIClient()
+    model_client = OpenAIClient(api_key=api_key, base_url=base_url)
     model_kwargs = {
         "model": model or model_config["model"],
         "stream": False,
@@ -176,9 +154,18 @@ def _sanitize_response(response: PreAssessmentResponse) -> PreAssessmentResponse
 async def generate_pre_assessment(
     request: PreAssessmentRequest, workspace_root: Path
 ) -> PreAssessmentResponse:
-    profile_context = load_private_profile_context(workspace_root)
+    profile_context = format_assistant_memory_for_prompt(
+        workspace_root,
+        purpose="pre_assessment",
+    )
     prompt = build_pre_assessment_prompt(request, profile_context)
-    raw_response = await call_pre_assessment_model(prompt)
+    raw_response = await call_pre_assessment_model(
+        prompt,
+        provider=request.provider,
+        model=request.model,
+        api_key=request.api_key,
+        base_url=request.base_url,
+    )
     payload = _extract_json_object(raw_response)
     result = PreAssessmentResponse.model_validate(payload)
     return _sanitize_response(result)

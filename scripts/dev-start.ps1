@@ -50,6 +50,7 @@ if ($pythonExe -notlike "*$condaEnvName*") {
 $npmCommand = "npm"
 $backendLog = Join-Path $stateDir "backend-$backendPort.log"
 $frontendLog = Join-Path $stateDir "frontend-$frontendPort.log"
+$nextDir = Join-Path $repoRoot ".next"
 
 function Stop-ProcessTreeByPid {
   param(
@@ -151,6 +152,16 @@ if (Test-PortListening -Port $backendPort) {
   throw "Backend port $backendPort is already in use by PID(s): $($backendPids -join ', '). Run scripts/dev-stop.ps1 or stop those processes first."
 }
 
+if (Test-Path $nextDir) {
+  $resolvedNextDir = (Resolve-Path $nextDir).Path
+  if (-not $resolvedNextDir.StartsWith($repoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to clear unexpected .next path: $resolvedNextDir"
+  }
+
+  Remove-Item -LiteralPath $resolvedNextDir -Recurse -Force
+  Write-Host "Cleared stale frontend build cache: $resolvedNextDir"
+}
+
 $backend = Start-Process -FilePath "cmd.exe" `
   -ArgumentList @(
     "/c",
@@ -162,7 +173,7 @@ $backend = Start-Process -FilePath "cmd.exe" `
 $frontend = Start-Process -FilePath "cmd.exe" `
   -ArgumentList @(
     "/c",
-    "cd /d `"$repoRoot`" && set PORT=$frontendPort && $npmCommand run dev -- --port $frontendPort > `"$frontendLog`" 2>&1"
+    "cd /d `"$repoRoot`" && set PORT=$frontendPort && node_modules\.bin\next.cmd dev --port $frontendPort > `"$frontendLog`" 2>&1"
   ) `
   -WindowStyle Hidden `
   -PassThru
@@ -174,7 +185,7 @@ if (-not $backendReady) {
   throw "Backend failed to start on port $backendPort. Check log: $backendLog"
 }
 
-$frontendReady = Wait-ForPort -Port $frontendPort -TimeoutSeconds 45
+$frontendReady = Wait-ForPort -Port $frontendPort -TimeoutSeconds 60
 if (-not $frontendReady) {
   Stop-ProcessTreeByPid -TargetPid $backend.Id
   Stop-ProcessTreeByPid -TargetPid $frontend.Id

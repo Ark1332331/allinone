@@ -492,17 +492,17 @@ export default function Home() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-base font-semibold text-[var(--foreground)] font-serif">
-                  学习入口 Beta
+                  学习空间 Beta
                 </h3>
                 <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
-                  先把材料带进来，再拿到一个初步判断。当前先支持手动 Markdown，后续再接文件导入和阅读内提问。
+                  先按学科进入资料架，再决定这次是复习、探索，还是持续阅读。初判页面现在退回成子节点，不再单独代表整个学习产品。
                 </p>
               </div>
               <Link
-                href="/pre-assessment"
+                href="/learn"
                 className="btn-japanese inline-flex items-center justify-center rounded-lg px-5 py-2.5"
               >
-                打开学习入口
+                进入学习空间
               </Link>
             </div>
           </div>

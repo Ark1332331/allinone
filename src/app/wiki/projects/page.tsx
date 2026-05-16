@@ -20,10 +20,10 @@ export default function WikiProjectsPage() {
             回到首页
           </Link>
           <Link
-            href="/pre-assessment"
+            href="/learn"
             className="btn-japanese rounded-full px-4 py-2 text-sm"
           >
-            打开前置评估
+            打开学习空间
           </Link>
         </div>
       </div>

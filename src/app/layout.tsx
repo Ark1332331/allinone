@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import GlobalModelConfig from "@/components/GlobalModelConfig";
 import { ThemeProvider } from "next-themes";
 
 export const metadata: Metadata = {
@@ -24,6 +25,7 @@ export default function RootLayout({
       </head>
       <body className="antialiased">
         <ThemeProvider attribute="data-theme" defaultTheme="system" enableSystem>
+          <GlobalModelConfig />
           {children}
         </ThemeProvider>
       </body>
