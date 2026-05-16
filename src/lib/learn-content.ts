@@ -18,6 +18,13 @@ export type LearnSubjectInfo = {
   emphasis: string;
 };
 
+export type MajorCourseInfo = {
+  slug: string;
+  title: string;
+  description: string;
+  workspaceSlug: string;
+};
+
 export const LEARNING_FLOW_STEPS = [
   {
     title: '导入资料',
@@ -98,3 +105,70 @@ export const SUBJECT_INFO_MAP: Record<LearnSubjectSlug, LearnSubjectInfo> = {
       '如果你验收这个学科，优先试“把重点或往年卷挂成背景资料，再看正文追问会不会更有针对性”。',
   },
 };
+
+export const DEFAULT_MAJOR_COURSE: MajorCourseInfo = {
+  slug: 'digital-system',
+  title: '数字系统设计基础',
+  description: '适合放数电、计组相关课件、实验资料、重点整理和往年题。',
+  workspaceSlug: 'major-course:digital-system',
+};
+
+export const DEFAULT_MAJOR_COURSES: MajorCourseInfo[] = [DEFAULT_MAJOR_COURSE];
+
+export function createMajorCourseWorkspaceSlug(courseSlug: string) {
+  return `major-course:${courseSlug}`;
+}
+
+export function createMajorCourseRoutePath(courseSlug: string) {
+  return `/learn/major-course/${courseSlug}`;
+}
+
+export function createSubjectShelfPath(subjectSlug: string) {
+  if (subjectSlug.startsWith('major-course:')) {
+    return createMajorCourseRoutePath(subjectSlug.split(':').slice(1).join(':'));
+  }
+
+  return `/learn/${subjectSlug}`;
+}
+
+export function createMaterialReadingPath(subjectSlug: string, materialId: string) {
+  if (subjectSlug.startsWith('major-course:')) {
+    return `${createSubjectShelfPath(subjectSlug)}/${materialId}`;
+  }
+
+  return `/learn/${subjectSlug}/${materialId}`;
+}
+
+export function getLegacyMajorCourseRouteRedirect(
+  subjectSlug: string,
+  materialId?: string
+) {
+  if (!subjectSlug.startsWith('major-course:')) {
+    return null;
+  }
+
+  return materialId
+    ? createMaterialReadingPath(subjectSlug, materialId)
+    : createSubjectShelfPath(subjectSlug);
+}
+
+export function getLegacyMajorCoursePathRedirect(pathname: string) {
+  const match = pathname.match(
+    /^\/learn\/major-course(?::|%3A)([^/]+)(\/.*)?$/i
+  );
+  if (!match) {
+    return null;
+  }
+
+  return `/learn/major-course/${match[1]}${match[2] ?? ''}`;
+}
+
+export function slugifyCourseName(name: string) {
+  const normalized = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return normalized || `course-${Date.now()}`;
+}

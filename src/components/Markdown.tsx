@@ -5,14 +5,17 @@ import rehypeRaw from 'rehype-raw';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { tomorrow } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import Mermaid from './Mermaid';
+import { renderMarkdownMath } from '@/lib/markdown-math';
 
 interface MarkdownProps {
   content: string;
 }
 
 const Markdown: React.FC<MarkdownProps> = ({ content }) => {
+  const renderedContent = renderMarkdownMath(content);
   // Define markdown components
-  const MarkdownComponents: React.ComponentProps<typeof ReactMarkdown>['components'] = {
+  const MarkdownComponents: React.ComponentProps<typeof ReactMarkdown>['components'] &
+    Record<string, React.ElementType> = {
     p({ children, ...props }: { children?: React.ReactNode }) {
       return <p className="mb-3 text-sm leading-relaxed dark:text-white" {...props}>{children}</p>;
     },
@@ -111,6 +114,9 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
     td({ children, ...props }: { children?: React.ReactNode }) {
       return <td className="px-4 py-3 border-t border-gray-200 dark:border-gray-700" {...props}>{children}</td>;
     },
+    sp({ children, ...props }: { children?: React.ReactNode }) {
+      return <span {...props}>{children}</span>;
+    },
     code(props: {
       inline?: boolean;
       className?: string;
@@ -199,7 +205,7 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
         rehypePlugins={[rehypeRaw]}
         components={MarkdownComponents}
       >
-        {content}
+        {renderedContent}
       </ReactMarkdown>
     </div>
   );

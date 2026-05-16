@@ -39,6 +39,20 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
+  async redirects() {
+    return [
+      {
+        source: '/learn/major-course\\::course/:materialId',
+        destination: '/learn/major-course/:course/:materialId',
+        permanent: false,
+      },
+      {
+        source: '/learn/major-course\\::course',
+        destination: '/learn/major-course/:course',
+        permanent: false,
+      },
+    ];
+  },
   async rewrites() {
     return [
       {

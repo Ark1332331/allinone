@@ -6,13 +6,15 @@
 
 1. [`context.md`](./context.md)
    项目方向、用户背景、协作期望。
-2. [`active/current-focus.md`](./active/current-focus.md)
+2. [`IMPLEMENTATION.md`](./IMPLEMENTATION.md)
+   想实现什么、现在已经实现了什么。不汇总 spec，只写实际状态。
+3. [`active/current-focus.md`](./active/current-focus.md)
    当前真正正在讨论或建设的重点。
-3. [`active/handoff.md`](./active/handoff.md)
+4. [`active/handoff.md`](./active/handoff.md)
    当前决策、未决问题、执行边界、交接方式。
-4. [`specs/`](./specs/) 里的相关文档
+5. [`specs/`](./specs/) 里的相关文档
    当前仍然有效的功能 spec。
-5. [`workflows/`](./workflows/) 里的相关文档
+6. [`workflows/`](./workflows/) 里的相关文档
    agent 之间如何协作、如何交接、如何本地使用。
 
 ## 目录职责
@@ -33,7 +35,8 @@
 如果 `archive/` 里的文档与 `context.md`、`active/`、`specs/` 冲突，按下面优先级相信：
 
 1. `active/`
-2. `specs/`
-3. `context.md`
-4. `workflows/`
-5. `archive/`
+2. `IMPLEMENTATION.md`
+3. `specs/`
+4. `context.md`
+5. `workflows/`
+6. `archive/`
