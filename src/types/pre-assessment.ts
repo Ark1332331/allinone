@@ -17,6 +17,10 @@ export interface PreAssessmentRequest {
   excerpt_context_after?: string;
   user_goal_hint?: string;
   profile_overrides: Record<string, unknown>;
+  provider?: string;
+  model?: string;
+  api_key?: string;
+  base_url?: string;
 }
 
 export interface ReadinessAssessment {

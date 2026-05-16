@@ -21,6 +21,10 @@ class PreAssessmentRequest(BaseModel):
     excerpt_context_after: Optional[str] = Field(default=None)
     user_goal_hint: Optional[str] = Field(default=None, max_length=1000)
     profile_overrides: Dict[str, Any] = Field(default_factory=dict)
+    provider: str = Field(default="openai", min_length=1, max_length=60)
+    model: Optional[str] = Field(default=None, max_length=120)
+    api_key: Optional[str] = Field(default=None, max_length=500)
+    base_url: Optional[str] = Field(default=None, max_length=500)
 
 
 class ReadinessAssessment(BaseModel):

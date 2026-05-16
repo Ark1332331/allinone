@@ -3,33 +3,33 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
-  --background: #f3efe6;
-  --foreground: #1f2725;
-  --shadow-color: rgba(31, 39, 37, 0.08);
-  --accent-primary: #2f6b66;
-  --accent-secondary: #c6b38e;
-  --accent-soft: rgba(47, 107, 102, 0.12);
-  --border-color: #d8d0c3;
-  --border-strong: #b9b09f;
-  --card-bg: rgba(251, 248, 241, 0.92);
-  --highlight: #c87647;
-  --muted: #66706a;
-  --link-color: #245d58;
+  --background: #f6f3ec;
+  --foreground: #1f2430;
+  --shadow-color: rgba(31, 36, 48, 0.08);
+  --accent-primary: #4d5f89;
+  --accent-secondary: #c8a66c;
+  --accent-soft: rgba(77, 95, 137, 0.12);
+  --border-color: #d8d2c7;
+  --border-strong: #b9b2a6;
+  --card-bg: rgba(255, 252, 247, 0.94);
+  --highlight: #c96d49;
+  --muted: #667084;
+  --link-color: #3b5d8f;
 }
 
 html[data-theme='dark'] {
-  --background: #111716;
-  --foreground: #edf1ec;
+  --background: #0f1420;
+  --foreground: #edf2fb;
   --shadow-color: rgba(0, 0, 0, 0.24);
-  --accent-primary: #79b4ad;
-  --accent-secondary: #8f7d5d;
-  --accent-soft: rgba(121, 180, 173, 0.16);
-  --border-color: #2a3532;
-  --border-strong: #40504b;
-  --card-bg: rgba(24, 32, 30, 0.92);
-  --highlight: #d79264;
-  --muted: #9aa49d;
-  --link-color: #a5d3cc;
+  --accent-primary: #8ea9df;
+  --accent-secondary: #c6a46c;
+  --accent-soft: rgba(142, 169, 223, 0.16);
+  --border-color: #253047;
+  --border-strong: #3c4c69;
+  --card-bg: rgba(18, 24, 37, 0.94);
+  --highlight: #e0a06d;
+  --muted: #a0abc0;
+  --link-color: #b0c4f2;
 }
 
 [data-theme="dark"] select option {
@@ -57,8 +57,8 @@ html[data-theme='dark'] {
 body {
   min-height: 100dvh;
   background:
-    radial-gradient(circle at top left, rgba(198, 179, 142, 0.18), transparent 28%),
-    radial-gradient(circle at top right, rgba(47, 107, 102, 0.12), transparent 24%),
+    radial-gradient(circle at top left, rgba(200, 166, 108, 0.16), transparent 28%),
+    radial-gradient(circle at top right, rgba(77, 95, 137, 0.14), transparent 24%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 22%),
     var(--background);
   color: var(--foreground);
@@ -79,13 +79,13 @@ a {
   background-color: var(--background);
   background-image:
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent),
-    url("data:image/svg+xml,%3Csvg width='120' height='120' viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23b9b09f' fill-opacity='0.08'%3E%3Ccircle cx='18' cy='22' r='2'/%3E%3Ccircle cx='72' cy='18' r='1.6'/%3E%3Ccircle cx='98' cy='48' r='2.2'/%3E%3Ccircle cx='30' cy='84' r='1.8'/%3E%3Ccircle cx='80' cy='92' r='2'/%3E%3Cpath d='M10 54c8 0 8-8 16-8s8 8 16 8 8-8 16-8 8 8 16 8' stroke='%23d8d0c3' stroke-opacity='0.18' fill='none'/%3E%3C/g%3E%3C/svg%3E");
+    url("data:image/svg+xml,%3Csvg width='120' height='120' viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23b9b2a6' fill-opacity='0.08'%3E%3Ccircle cx='18' cy='22' r='2'/%3E%3Ccircle cx='72' cy='18' r='1.6'/%3E%3Ccircle cx='98' cy='48' r='2.2'/%3E%3Ccircle cx='30' cy='84' r='1.8'/%3E%3Ccircle cx='80' cy='92' r='2'/%3E%3Cpath d='M10 54c8 0 8-8 16-8s8 8 16 8 8-8 16-8 8 8 16 8' stroke='%23d8d2c7' stroke-opacity='0.18' fill='none'/%3E%3C/g%3E%3C/svg%3E");
 }
 
 html[data-theme='dark'] .paper-texture {
   background-image:
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent),
-    url("data:image/svg+xml,%3Csvg width='120' height='120' viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%2340504b' fill-opacity='0.18'%3E%3Ccircle cx='18' cy='22' r='2'/%3E%3Ccircle cx='72' cy='18' r='1.6'/%3E%3Ccircle cx='98' cy='48' r='2.2'/%3E%3Ccircle cx='30' cy='84' r='1.8'/%3E%3Ccircle cx='80' cy='92' r='2'/%3E%3Cpath d='M10 54c8 0 8-8 16-8s8 8 16 8 8-8 16-8 8 8 16 8' stroke='%232a3532' stroke-opacity='0.45' fill='none'/%3E%3C/g%3E%3C/svg%3E");
+    url("data:image/svg+xml,%3Csvg width='120' height='120' viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%233c4c69' fill-opacity='0.18'%3E%3Ccircle cx='18' cy='22' r='2'/%3E%3Ccircle cx='72' cy='18' r='1.6'/%3E%3Ccircle cx='98' cy='48' r='2.2'/%3E%3Ccircle cx='30' cy='84' r='1.8'/%3E%3Ccircle cx='80' cy='92' r='2'/%3E%3Cpath d='M10 54c8 0 8-8 16-8s8 8 16 8 8-8 16-8 8 8 16 8' stroke='%23253047' stroke-opacity='0.45' fill='none'/%3E%3C/g%3E%3C/svg%3E");
 }
 
 .btn-japanese {
@@ -100,20 +100,20 @@ html[data-theme='dark'] .paper-texture {
     transform 180ms ease,
     box-shadow 180ms ease,
     filter 180ms ease;
-  box-shadow: 0 14px 28px -18px rgba(47, 107, 102, 0.55);
+  box-shadow: 0 14px 28px -18px rgba(77, 95, 137, 0.45);
 }
 
 .btn-japanese:hover {
   transform: translateY(-1px);
   filter: saturate(1.04);
-  box-shadow: 0 18px 32px -18px rgba(47, 107, 102, 0.48);
+  box-shadow: 0 18px 32px -18px rgba(77, 95, 137, 0.4);
 }
 
 .btn-japanese:focus-visible {
   outline: none;
   box-shadow:
     0 0 0 4px var(--accent-soft),
-    0 18px 32px -18px rgba(47, 107, 102, 0.48);
+    0 18px 32px -18px rgba(77, 95, 137, 0.4);
 }
 
 .btn-japanese:active {

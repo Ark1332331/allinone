@@ -11,9 +11,15 @@ const nextConfig: NextConfig = {
   },
   // Reduce memory usage during build
   webpack: (config, { isServer }) => {
+    config.resolve.alias = {
+      ...(config.resolve.alias ?? {}),
+      canvas: false,
+    };
+
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,
+        canvas: false,
         fs: false,
       };
     }
