@@ -3,11 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  activateModelConfigPreset,
   DEFAULT_MODEL_CONFIG,
+  deleteModelConfigPreset,
+  getActiveModelConfigPresetId,
   loadModelConfig,
+  loadModelConfigPresets,
   MODEL_CONFIG_UPDATED_EVENT,
   normalizeModelConfig,
   saveModelConfig,
+  saveModelConfigPreset,
+  type ModelConfigPreset,
   type PersistedModelConfig,
 } from '@/lib/model-config';
 
@@ -22,17 +28,26 @@ export default function GlobalModelConfig() {
   const [isOpen, setIsOpen] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [config, setConfig] = useState<PersistedModelConfig>(DEFAULT_MODEL_CONFIG);
+  const [presets, setPresets] = useState<ModelConfigPreset[]>([]);
+  const [activePresetId, setActivePresetId] = useState('');
+  const [presetName, setPresetName] = useState('');
 
   useEffect(() => {
     setConfig(loadModelConfig());
+    setPresets(loadModelConfigPresets());
+    setActivePresetId(getActiveModelConfigPresetId());
 
     const syncConfig = (event?: Event) => {
       const customEvent = event as CustomEvent<PersistedModelConfig> | undefined;
       if (customEvent?.detail) {
         setConfig(normalizeModelConfig(customEvent.detail));
+        setPresets(loadModelConfigPresets());
+        setActivePresetId(getActiveModelConfigPresetId());
         return;
       }
       setConfig(loadModelConfig());
+      setPresets(loadModelConfigPresets());
+      setActivePresetId(getActiveModelConfigPresetId());
     };
 
     const handlePointerDown = (event: MouseEvent) => {
@@ -80,9 +95,70 @@ export default function GlobalModelConfig() {
     saveModelConfig(next);
   };
 
+  const refreshPresets = () => {
+    setPresets(loadModelConfigPresets());
+    setActivePresetId(getActiveModelConfigPresetId());
+  };
+
+  const handleActivatePreset = (presetId: string) => {
+    if (!presetId) {
+      setActivePresetId('');
+      return;
+    }
+
+    const activated = activateModelConfigPreset(presetId);
+    if (activated) {
+      setConfig(activated);
+      setPresetName(activated.name);
+      refreshPresets();
+    }
+  };
+
+  const saveAsPreset = () => {
+    const preset = saveModelConfigPreset({
+      ...config,
+      name: presetName || getSummaryLabel(config),
+    });
+    activateModelConfigPreset(preset.id);
+    setPresetName(preset.name);
+    setConfig(preset);
+    refreshPresets();
+  };
+
+  const updateActivePreset = () => {
+    const activePreset = presets.find((preset) => preset.id === activePresetId);
+    if (!activePreset) {
+      saveAsPreset();
+      return;
+    }
+
+    const preset = saveModelConfigPreset({
+      ...config,
+      id: activePreset.id,
+      name: presetName || activePreset.name,
+    });
+    activateModelConfigPreset(preset.id);
+    setPresetName(preset.name);
+    setConfig(preset);
+    refreshPresets();
+  };
+
+  const removeActivePreset = () => {
+    if (!activePresetId) {
+      return;
+    }
+
+    const nextPresets = deleteModelConfigPreset(activePresetId);
+    setPresets(nextPresets);
+    setActivePresetId('');
+    setPresetName('');
+  };
+
   const resetDefaults = () => {
     setConfig(DEFAULT_MODEL_CONFIG);
     saveModelConfig(DEFAULT_MODEL_CONFIG);
+    setActivePresetId('');
+    setPresetName('');
   };
 
   return (
@@ -116,6 +192,36 @@ export default function GlobalModelConfig() {
             </div>
 
             <div className="mt-4 grid gap-3">
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-[var(--foreground)]">
+                  配置档案
+                </span>
+                <select
+                  className="input-japanese min-h-11 w-full rounded-2xl px-4 py-3 text-[var(--foreground)]"
+                  value={activePresetId}
+                  onChange={(event) => handleActivatePreset(event.target.value)}
+                >
+                  <option value="">当前未绑定保存档案</option>
+                  {presets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-[var(--foreground)]">
+                  档案名称
+                </span>
+                <input
+                  className="input-japanese min-h-11 w-full rounded-2xl px-4 py-3 text-[var(--foreground)]"
+                  value={presetName}
+                  onChange={(event) => setPresetName(event.target.value)}
+                  placeholder="例如：DeepSeek 默认 / MiMo 2.5"
+                />
+              </label>
+
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-[var(--foreground)]">
                   Provider
@@ -178,8 +284,35 @@ export default function GlobalModelConfig() {
               </label>
             </div>
 
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={saveAsPreset}
+                className="btn-japanese inline-flex items-center justify-center rounded-full px-4 py-2 text-sm"
+              >
+                保存为新档案
+              </button>
+              <button
+                type="button"
+                onClick={updateActivePreset}
+                className="rounded-full border border-[var(--border-color)] px-4 py-2 text-sm text-[var(--foreground)] transition hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
+              >
+                更新当前档案
+              </button>
+              <button
+                type="button"
+                onClick={removeActivePreset}
+                disabled={!activePresetId}
+                className="rounded-full border border-rose-500/25 px-4 py-2 text-sm text-rose-700 transition hover:border-rose-500 hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-rose-300"
+              >
+                删除档案
+              </button>
+            </div>
+
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs text-[var(--muted)]">只需要配置一次，后续会持续使用。</p>
+              <p className="text-xs text-[var(--muted)]">
+                保存成档案后，下次只需从下拉框切换。
+              </p>
               <button
                 type="button"
                 onClick={resetDefaults}

@@ -23,7 +23,7 @@ downloads/
 eggs/
 api/logs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -76,5 +76,7 @@ certs/
 Slides
 AGENT.md
 .codex/
+.codex-next-*.log
 .dev-state/
+.superpowers/
 dev-processes-test.json

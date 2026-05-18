@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 LearningChatRole = Literal["user", "assistant", "system"]
 BackgroundRole = Literal["standard", "evidence", "explanation"]
-SnippetSource = Literal["text", "pdf_text", "pdf_screenshot"]
+SnippetSource = Literal["text", "pdf_text", "pdf_screenshot", "assistant_reply"]
 
 
 class LearningChatMessage(BaseModel):

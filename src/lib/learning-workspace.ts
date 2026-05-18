@@ -9,9 +9,22 @@ import type {
   SubjectWorkspace,
 } from '@/types/learning-workspace';
 import type { LearningChatMessage } from '@/types/learning-chat';
+import type { LearningEntryImportResponse } from '@/types/learning-entry';
 
 const DEFAULT_TARGET_TITLE = '当前目标';
 const STORAGE_PREFIX = 'allinone-subject-workspace';
+
+function getExtensionFromFilename(filename: string) {
+  const extension = filename.includes('.')
+    ? `.${filename.split('.').pop() ?? ''}`.toLowerCase()
+    : '';
+  return extension || '.pdf';
+}
+
+function getTitleFromFilename(filename: string) {
+  const cleanName = filename.trim() || '未命名资料';
+  return cleanName.replace(/\.[^.]+$/, '') || cleanName;
+}
 
 function getDefaultReadingViewMode(
   sourceType: ImportedMaterialDraftInput['source_type']
@@ -100,14 +113,54 @@ export function createInitialSubjectWorkspace(
   };
 }
 
+export function createOriginalFileImportResponse(input: {
+  filename: string;
+  mimeType?: string;
+}): LearningEntryImportResponse {
+  const filename = input.filename.trim() || '未命名资料.pdf';
+  const extension = getExtensionFromFilename(filename);
+
+  return {
+    title: getTitleFromFilename(filename),
+    source_type: extension === '.pdf' ? 'pdf_md' : 'other_md',
+    full_content:
+      `原文件：${filename}\n\n` +
+      '这份材料以原文件优先模式快速导入，尚未生成结构化文本。' +
+      '你可以先在原文件阅读器中查看、框选截图并提问。',
+    filename,
+    mime_type: input.mimeType,
+    detected_extension: extension,
+    converter_used: 'original_file',
+    import_summary: '已跳过结构化文本转换，优先进入原文件阅读。',
+    warnings: ['尚未生成结构化文本；前置评估和全文上下文能力会受限。'],
+  };
+}
+
+export function migrateSubjectWorkspace(
+  workspace: SubjectWorkspace,
+  nextSubjectSlug: string,
+  nextSubjectTitle?: string
+): SubjectWorkspace {
+  return {
+    ...workspace,
+    subjectSlug: nextSubjectSlug,
+    subjectTitle: nextSubjectTitle ?? workspace.subjectTitle,
+    materials: workspace.materials.map((material) => ({
+      ...material,
+      subjectSlug: nextSubjectSlug,
+    })),
+  };
+}
+
 export function createImportedMaterialDraft(
   input: ImportedMaterialDraftInput
 ): LearningMaterialRecord {
   const now = Date.now();
   const roles = inferRoles(input.subjectSlug, input.source_type, input.title);
+  const idSubjectSlug = input.subjectSlug.replace(/[^a-zA-Z0-9_-]+/g, '-');
 
   return {
-    id: `${input.subjectSlug}-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    id: `${idSubjectSlug}-${now}-${Math.random().toString(36).slice(2, 8)}`,
     subjectSlug: input.subjectSlug,
     title: input.title,
     sourceType: input.source_type,
@@ -182,6 +235,7 @@ export function addSnippet(
 ): ReadingSnippet[] {
   const text = nextSnippet.text.trim();
   const anchorLabel = nextSnippet.anchorLabel.trim();
+  const source = nextSnippet.source ?? 'text';
 
   if (!text || !anchorLabel) {
     return snippets;
@@ -190,7 +244,11 @@ export function addSnippet(
   if (
     snippets.some(
       (snippet) =>
-        snippet.materialId === nextSnippet.materialId && snippet.text === text
+        snippet.materialId === nextSnippet.materialId &&
+        snippet.text === text &&
+        (snippet.source ?? 'text') === source &&
+        (source !== 'assistant_reply' ||
+          (snippet.parentSnippetId ?? null) === (nextSnippet.parentSnippetId ?? null))
     )
   ) {
     return snippets;
@@ -210,7 +268,8 @@ export function addSnippet(
       materialId: nextSnippet.materialId,
       text,
       anchorLabel,
-      source: nextSnippet.source,
+      source,
+      parentSnippetId: nextSnippet.parentSnippetId,
       imageDataUrl: nextSnippet.imageDataUrl,
       pageNumber: nextSnippet.pageNumber,
       region: nextSnippet.region,
@@ -226,23 +285,31 @@ export function getMaterialSnippetHistory(
   const material = getMaterialById(workspace, materialId);
   const snippets = material?.savedSnippets ?? [];
 
-  return [...snippets].sort((left, right) => {
-    const leftPage = left.pageNumber ?? Number.MAX_SAFE_INTEGER;
-    const rightPage = right.pageNumber ?? Number.MAX_SAFE_INTEGER;
-    if (leftPage !== rightPage) {
-      return leftPage - rightPage;
-    }
+  return snippets
+    .filter(
+      (snippet) =>
+        snippet.source === 'pdf_screenshot' &&
+        Boolean(snippet.pageNumber) &&
+        Boolean(snippet.region) &&
+        (snippet.messages ?? []).length > 0
+    )
+    .sort((left, right) => {
+      const leftPage = left.pageNumber ?? Number.MAX_SAFE_INTEGER;
+      const rightPage = right.pageNumber ?? Number.MAX_SAFE_INTEGER;
+      if (leftPage !== rightPage) {
+        return leftPage - rightPage;
+      }
 
-    const leftY = left.region?.y ?? Number.MAX_SAFE_INTEGER;
-    const rightY = right.region?.y ?? Number.MAX_SAFE_INTEGER;
-    if (leftY !== rightY) {
-      return leftY - rightY;
-    }
+      const leftY = left.region?.y ?? Number.MAX_SAFE_INTEGER;
+      const rightY = right.region?.y ?? Number.MAX_SAFE_INTEGER;
+      if (leftY !== rightY) {
+        return leftY - rightY;
+      }
 
-    const leftX = left.region?.x ?? Number.MAX_SAFE_INTEGER;
-    const rightX = right.region?.x ?? Number.MAX_SAFE_INTEGER;
-    return leftX - rightX;
-  });
+      const leftX = left.region?.x ?? Number.MAX_SAFE_INTEGER;
+      const rightX = right.region?.x ?? Number.MAX_SAFE_INTEGER;
+      return leftX - rightX;
+    });
 }
 
 export function removeSnippetAtIndex(
@@ -408,6 +475,7 @@ export function loadSubjectWorkspace(subjectSlug: string): SubjectWorkspace {
       ...createInitialSubjectWorkspace(subjectSlug),
       ...parsed,
       subjectSlug,
+      subjectTitle: parsed.subjectTitle,
       currentTarget: {
         ...createInitialSubjectWorkspace(subjectSlug).currentTarget,
         ...parsed.currentTarget,

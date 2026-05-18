@@ -1,4 +1,4 @@
-# 当前交接
+﻿# 当前交接
 
 ## 用途
 
@@ -12,10 +12,11 @@
 2. `docs/context.md`
 3. `docs/active/current-focus.md`
 4. `docs/active/handoff.md`
-5. `docs/specs/learning-entry-workflow.md`
-6. `docs/specs/pre-assessment-plan.md`
-7. `docs/specs/learning-v2-alignment.md`
-8. `AGENTS.md`
+5. `docs/active/learning-traces.md`
+6. `docs/specs/learning-entry-workflow.md`
+7. `docs/specs/pre-assessment-plan.md`
+8. `docs/specs/learning-v2-alignment.md`
+9. `AGENTS.md`
 
 ## 角色分工
 
@@ -51,6 +52,7 @@
 - 项目现在是 `allinone`，一个个性化学习助手，不再是通用 repo wiki 产品。
 - 助手应当观察、引导、判断，必要时批评，而不是被动顺从。
 - repo 里的共享文档是跨 agent 延续性的主层；私有 memory 只是补充。
+- `docs/active/learning-traces.md` 是稳定画像之前的原始证据层。它记录用户在协作和学习过程中的真实表现、能力缺口和产品启示，但不要把单次事件直接写成稳定画像。
 - 当前真正的主路径是学习材料入口，而不是单独的评估表单。
 - `pre-assessment` v1 必须优先服务用户真实的学习材料工作流，但它只是在主路径中的一个初判节点。
 - 当前新增对齐：
@@ -127,71 +129,8 @@ v1 主范围仍只聚焦学习材料：
 - 输出优先短而有行动性，不追求花哨和全面。
 - 如果后续再次出现“还没说清实现哪条路就直接开始做”的倾向，应先暂停并重新对齐。
 - 如果后续实现把阅读页再次退回成“单段即时问答框”或“只看当前材料不看背景”的模式，视为偏离当前主 spec。
-## 2026-05-14 Codex Handoff Update
-
-- Completed in this pass:
-  - rewrote `src/components/learning/SubjectShelfClient.tsx`
-  - rewrote `src/components/learning/ReadingWorkspace.tsx`
-  - added `src/app/learn/[subject]/[materialId]/page.tsx`
-  - rewrote `src/app/learn/page.tsx` into a cleaner reading-first entrance
-  - moved subject metadata into `src/lib/learn-content.ts`
-  - rewrote `src/app/learn/[subject]/page.tsx` to consume shared subject metadata
-  - rewrote `src/components/GlobalModelConfig.tsx` with clean Chinese labels
-  - added stricter frontend type guards for learning import / pre-assessment / learning chat responses
-  - enabled `allowImportingTsExtensions` in `tsconfig.json` so the existing node strip-types tests still compile under project TypeScript checks
-- User-facing result:
-  - import into subject shelf
-  - click a material card and enter正文 directly
-  - optionally open pre-assessment from the reading page header
-  - select text inside current material and send follow-up questions with current target + background materials
-- Verification performed:
-  - `node_modules/.bin/tsc.cmd --noEmit`
-  - `node --test --experimental-strip-types tests/node/learn-content.test.ts`
-  - `node --test --experimental-strip-types tests/node/learning-workspace.test.ts`
-  - `python tests/unit/test_learning_chat_service.py`
-- Keep in mind:
-  - repo still contains many unrelated dirty changes; do not assume this pass owns all modified files shown by `git status`
-  - the larger IA / UI cleanup is not finished yet; this pass only stabilizes the minimum reading-first loop
-
-## 2026-05-14 PDF Viewer Update
-
-- Added:
-  - `src/app/api/pdf-worker/route.ts` to serve the local pdf.js worker
-  - `src/components/learning/PdfReadingSurface.tsx` using `react-pdf-viewer`
-  - PDF text-selection popup with `直接提问` / `加入待问`
-  - global PDF viewer styles in `src/app/layout.tsx`
-- Reading-page behavior now:
-  - PDF uses a real viewer instead of pretending the markdown preview is the original file
-  - structured text still remains for follow-up chat and pre-assessment
-  - text selections can be turned into temporary ask snippets without permanently polluting the list
-- Verified in this turn:
-  - `node_modules/.bin/tsc.cmd --noEmit`
-  - `node --test --experimental-strip-types tests/node/learning-workspace.test.ts`
-  - `node --test --experimental-strip-types tests/node/learn-content.test.ts`
-  - `python tests/unit/test_learning_chat_service.py`
-
-## 2026-05-15 PDF Reading Interaction Update
-
-- User feedback:
-  - Do not require a top toolbar click before asking screenshots; screenshot asking should feel like part of reading.
-  - In original-file mode, the page should focus on the PDF; structured text is still useful as hidden context/fallback, but should not be a parallel reading surface.
-  - History should be recoverable by clicking the corresponding position on the PDF page.
-  - A top-level history entry is still needed to scan all questions and pages.
-  - Xiaomi MiMo 2.5 may be the next model integration target.
-- Implemented:
-  - `PdfReadingSurface` now provides a per-page `框选提问` button and only the current page enters capture mode.
-  - Screenshot capture asks for the user's custom question before sending; the generic prompt is only a fallback.
-  - Screenshot snippets render as numbered anchors on the PDF page at their saved region.
-  - Clicking a PDF anchor opens that snippet's history.
-  - Reading page header now includes `历史记录`, opening an all-question panel sorted by page/position.
-  - Added snippet ids and `getMaterialSnippetHistory` for stable history lookup/sorting.
-  - Added a Node test describing stable screenshot ids and page/position history sorting.
-- Follow-up correction:
-  - Deleting a conversation now removes the snippet instead of leaving a `0 条消息` shell.
-  - Clicking a PDF anchor opens only the corresponding thread, not the entire side history list.
-  - Assistant answers can now be selected for follow-up; direct ask continues the current thread.
-- Important scope decision:
-  - MiMo 2.5 should be handled next as an OpenAI-compatible model configuration/provider task; do not tangle it with PDF reader interaction.
-- Verification:
-  - `node_modules/.bin/tsc.cmd --noEmit` passed.
-  - `node --test --experimental-strip-types tests/node/learning-workspace.test.ts` could not run in the current sandbox because Node child spawning fails with `spawn EPERM`.
+- 阅读页问答 UI 的当前约束：
+  - 临时输入框只负责承接选区或截图后的问题输入，不承载持久回答。
+  - 持久回答只显示在 `ReadingWorkspace` 的“当前问答小框”里；PDF 阅读面不再维护第二套回答/追问弹窗。
+  - 在当前问答小框的 LLM 回答里继续划线提问时，仍然先出现临时输入框；提交后切换到新的当前问答小框。
+  - 顶部历史入口只列原始 PDF 框选截图层的问题，用作顶层索引；回答内追问和结构化文本选区不进入这个历史列表。

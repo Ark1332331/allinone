@@ -2,8 +2,12 @@
 
 ### 共享文档入口
 
-- 进入仓库后，先读 `docs/README.md`，再按其中顺序读 `docs/context.md`、`docs/active/current-focus.md`、`docs/active/handoff.md`。
+- 进入仓库后，先读 `docs/README.md`，再按其中顺序读 `docs/context.md`、`docs/active/current-focus.md`、`docs/active/handoff.md`、`docs/active/learning-traces.md`。
 - 如果 `docs/archive/` 下的历史文档与 `docs/active/`、`docs/specs/` 冲突，优先相信后者。
+- `docs/active/handoff.md` 只放当前合同、当前真相和下一步；详细历史更新放到 `docs/archive/handoffs/`。
+- `docs/active/learning-traces.md` 是稳定画像之前的原始证据层。不要把单次纠偏直接写成用户画像；先记录证据，待多次验证或用户确认后再提炼。
+- 如果同一交互/实现问题连续修错两次，必须暂停补丁，先写清：场景、用户动作、预期、实际、涉及组件/状态、实际事件路径、预期事件路径、最小修改断点和不修改范围。
+- 重要代码或产品变更结束时，必须同步更新对应文档；如果只是历史流水，归档而不是继续加厚 handoff。
 
 只记录本仓库里代理最容易猜错或踩坑的事实。
 

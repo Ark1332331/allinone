@@ -21,7 +21,11 @@ export type LearningMaterialRole =
 export type BackgroundRole = 'standard' | 'evidence' | 'explanation';
 
 export type ReadingViewMode = 'structured' | 'original';
-export type ReadingSnippetSource = 'text' | 'pdf_text' | 'pdf_screenshot';
+export type ReadingSnippetSource =
+  | 'text'
+  | 'pdf_text'
+  | 'pdf_screenshot'
+  | 'assistant_reply';
 
 export interface ReadingSnippetRegion {
   x: number;
@@ -36,6 +40,7 @@ export interface ReadingSnippet {
   text: string;
   anchorLabel: string;
   source?: ReadingSnippetSource;
+  parentSnippetId?: string;
   imageDataUrl?: string;
   pageNumber?: number;
   region?: ReadingSnippetRegion;
@@ -78,6 +83,7 @@ export interface LearningMaterialRecord {
 
 export interface SubjectWorkspace {
   subjectSlug: SubjectSlug | string;
+  subjectTitle?: string;
   currentTarget: LearningTarget;
   materials: LearningMaterialRecord[];
 }

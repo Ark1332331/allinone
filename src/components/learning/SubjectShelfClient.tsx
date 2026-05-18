@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import {
   useId,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -12,7 +13,9 @@ import {
 
 import {
   addImportedMaterial,
+  createInitialSubjectWorkspace,
   createImportedMaterialDraft,
+  createOriginalFileImportResponse,
   loadSubjectWorkspace,
   removeMaterial,
   saveSubjectWorkspace,
@@ -20,6 +23,7 @@ import {
   updateCurrentTargetTitle,
   updateMaterialPreferredViewMode,
 } from '@/lib/learning-workspace';
+import { createMaterialReadingPath } from '@/lib/learn-content';
 import {
   deleteLearningMaterialSourceFile,
   saveLearningMaterialSourceFile,
@@ -106,19 +110,29 @@ function getBackgroundAssignment(
   );
 }
 
+function isPdfFile(file: File) {
+  return (
+    file.type === 'application/pdf' ||
+    file.name.trim().toLowerCase().endsWith('.pdf')
+  );
+}
+
 export default function SubjectShelfClient({
   subjectSlug,
   subjectInfo,
 }: Props) {
   const fileInputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const workspaceRef = useRef<SubjectWorkspace>(
+    createInitialSubjectWorkspace(subjectSlug)
+  );
   const [workspace, setWorkspace] = useState(() =>
-    loadSubjectWorkspace(subjectSlug)
+    createInitialSubjectWorkspace(subjectSlug)
   );
   const [targetTitleDraft, setTargetTitleDraft] = useState(
-    loadSubjectWorkspace(subjectSlug).currentTarget.title
+    createInitialSubjectWorkspace(subjectSlug).currentTarget.title
   );
-  const [isImporting, setIsImporting] = useState(false);
+  const [activeImportCount, setActiveImportCount] = useState(0);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
@@ -127,6 +141,18 @@ export default function SubjectShelfClient({
   >(null);
 
   const materialCount = workspace.materials.length;
+  const isImporting = activeImportCount > 0;
+  const displayedSubjectInfo = {
+    ...subjectInfo,
+    title: workspace.subjectTitle ?? subjectInfo.title,
+  };
+
+  useEffect(() => {
+    const loaded = loadSubjectWorkspace(subjectSlug);
+    workspaceRef.current = loaded;
+    setWorkspace(loaded);
+    setTargetTitleDraft(loaded.currentTarget.title);
+  }, [subjectSlug]);
 
   const sortedMaterials = useMemo(
     () =>
@@ -137,8 +163,15 @@ export default function SubjectShelfClient({
   );
 
   const updateWorkspace = (nextWorkspace: SubjectWorkspace) => {
+    workspaceRef.current = nextWorkspace;
     setWorkspace(nextWorkspace);
     saveSubjectWorkspace(nextWorkspace);
+  };
+
+  const updateWorkspaceWith = (
+    updater: (currentWorkspace: SubjectWorkspace) => SubjectWorkspace
+  ) => {
+    updateWorkspace(updater(workspaceRef.current));
   };
 
   const commitTargetTitle = () => {
@@ -157,7 +190,9 @@ export default function SubjectShelfClient({
       mime_type: payload.mime_type,
     });
 
-    updateWorkspace(addImportedMaterial(workspace, material));
+    updateWorkspaceWith((currentWorkspace) =>
+      addImportedMaterial(currentWorkspace, material)
+    );
 
     try {
       await saveLearningMaterialSourceFile(material.id, file);
@@ -169,7 +204,7 @@ export default function SubjectShelfClient({
   };
 
   const handleImportFile = async (file: File) => {
-    setIsImporting(true);
+    setActiveImportCount((count) => count + 1);
     setError(null);
     setImportStatus({
       label: `正在导入 ${file.name}`,
@@ -178,6 +213,37 @@ export default function SubjectShelfClient({
     });
 
     try {
+      if (isPdfFile(file)) {
+        setImportStatus({
+          label: `正在保存原文件 ${file.name}`,
+          progress: 60,
+          tone: 'info',
+        });
+
+        const payload = createOriginalFileImportResponse({
+          filename: file.name,
+          mimeType: file.type || undefined,
+        });
+        const sourceSaved = await handleImportedPayload(payload, file);
+        setImportStatus(
+          sourceSaved
+            ? {
+                label: `已导入 ${payload.title}`,
+                progress: 100,
+                tone: 'success',
+              }
+            : {
+                label: `${payload.title} 已导入，但原文件缓存保存失败`,
+                progress: 100,
+                tone: 'warning',
+              }
+        );
+        window.setTimeout(() => {
+          setImportStatus(null);
+        }, 1500);
+        return;
+      }
+
       window.setTimeout(() => {
         setImportStatus((current) =>
           current && current.progress < 60
@@ -242,18 +308,24 @@ export default function SubjectShelfClient({
           : '导入失败，请稍后重试。'
       );
     } finally {
-      setIsImporting(false);
+      setActiveImportCount((count) => Math.max(0, count - 1));
     }
   };
 
-  const handleFileInput = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleImportFiles = (files: File[]) => {
+    files.forEach((file) => {
+      void handleImportFile(file);
+    });
+  };
+
+  const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
     event.target.value = '';
-    if (!file) {
+    if (files.length === 0) {
       return;
     }
 
-    await handleImportFile(file);
+    handleImportFiles(files);
   };
 
   const handleDragOver = (event: DragEvent<HTMLElement>) => {
@@ -269,16 +341,16 @@ export default function SubjectShelfClient({
     }
   };
 
-  const handleDrop = async (event: DragEvent<HTMLElement>) => {
+  const handleDrop = (event: DragEvent<HTMLElement>) => {
     event.preventDefault();
     setIsDraggingFile(false);
 
-    const file = event.dataTransfer.files?.[0];
-    if (!file) {
+    const files = Array.from(event.dataTransfer.files ?? []);
+    if (files.length === 0) {
       return;
     }
 
-    await handleImportFile(file);
+    handleImportFiles(files);
   };
 
   const handleChooseBackgroundRole = (
@@ -331,13 +403,13 @@ export default function SubjectShelfClient({
                 Subject Shelf
               </p>
               <h1 className="text-3xl font-semibold tracking-tight text-[var(--foreground)] md:text-5xl">
-                {subjectInfo.title}
+                {displayedSubjectInfo.title}
               </h1>
               <p className="max-w-2xl text-base leading-7 text-[var(--muted)]">
-                {subjectInfo.description}
+                {displayedSubjectInfo.description}
               </p>
               <p className="max-w-2xl text-sm leading-6 text-[var(--foreground)]">
-                {subjectInfo.emphasis}
+                {displayedSubjectInfo.emphasis}
               </p>
             </div>
 
@@ -351,10 +423,11 @@ export default function SubjectShelfClient({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isImporting}
-                className="btn-japanese inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                className="btn-japanese inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm"
               >
-                {isImporting ? '正在导入...' : '选择文件导入'}
+                {isImporting
+                  ? `继续选择文件（正在导入 ${activeImportCount} 个）`
+                  : '选择文件导入'}
               </button>
             </div>
           </div>
@@ -428,7 +501,7 @@ export default function SubjectShelfClient({
                 导入资料
               </h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-                现在先优先支持你把 PDF 导进来开始学习。拖进这个区域，或者点按钮选文件都可以。
+                现在先优先支持你把 PDF 导进来开始学习。可以一次选择多份，也可以在上一份导入时继续添加下一份。
               </p>
             </div>
             <p className="text-sm text-[var(--muted)]">
@@ -470,7 +543,7 @@ export default function SubjectShelfClient({
             }`}
           >
             <p className="text-lg font-semibold text-[var(--foreground)]">
-              {isDraggingFile ? '松开鼠标开始导入' : '拖拽文件到这里'}
+              {isDraggingFile ? '松开鼠标开始导入' : '拖拽一个或多个文件到这里'}
             </p>
             <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
               或者点击这里打开文件选择器。
@@ -484,6 +557,7 @@ export default function SubjectShelfClient({
             id={fileInputId}
             ref={fileInputRef}
             type="file"
+            multiple
             className="hidden"
             accept=".md,.markdown,.txt,.pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.csv,.html,.htm"
             onChange={handleFileInput}
@@ -560,7 +634,7 @@ export default function SubjectShelfClient({
 
                     <div className="mt-5 flex flex-wrap gap-3">
                       <Link
-                        href={`/learn/${subjectSlug}/${material.id}`}
+                        href={createMaterialReadingPath(subjectSlug, material.id)}
                         className="btn-japanese inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm"
                       >
                         进入阅读

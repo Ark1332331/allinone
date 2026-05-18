@@ -13,6 +13,7 @@ import {
   type PDFDocumentProxy,
 } from 'pdfjs-dist';
 
+import Markdown from '@/components/Markdown';
 import type { ReadingSnippet, ReadingSnippetRegion } from '@/types/learning-workspace';
 
 type ScreenshotPayload = {
@@ -24,13 +25,20 @@ type ScreenshotPayload = {
   mode: 'direct' | 'stage';
 };
 
+type ScreenshotQuestionResult = {
+  answer?: string;
+  error?: string;
+};
+
 type Props = {
   fileUrl: string;
   title: string;
   filename: string;
   mimeType?: string;
   snippets: ReadingSnippet[];
-  onScreenshotQuestion: (payload: ScreenshotPayload) => void;
+  onScreenshotQuestion: (
+    payload: ScreenshotPayload
+  ) => Promise<ScreenshotQuestionResult | void> | ScreenshotQuestionResult | void;
   onOpenSnippet: (index: number) => void;
 };
 
@@ -40,6 +48,46 @@ type DragState = {
   startY: number;
   currentX: number;
   currentY: number;
+};
+
+type CaptureFollowUp = {
+  id: string;
+  selectedText: string;
+  question: string;
+  answer: string;
+  error: string;
+  isOpen: boolean;
+  isLoading: boolean;
+  box: FloatingBoxState;
+};
+
+type PendingCaptureState = {
+  pageNumber: number;
+  region: ReadingSnippetRegion;
+  imageDataUrl: string;
+  snippetIndex?: number;
+};
+
+type FloatingBoxState = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type CaptureBoxDragState = {
+  mode: 'move' | 'resize' | 'resize-left';
+  startX: number;
+  startY: number;
+  box: FloatingBoxState;
+};
+
+type FollowUpDragState = {
+  id: string;
+  mode: 'move' | 'resize' | 'resize-left';
+  startX: number;
+  startY: number;
+  box: FloatingBoxState;
 };
 
 function isPdf(mimeType?: string, filename?: string) {
@@ -107,9 +155,69 @@ function cropCanvas(
   return output.toDataURL('image/png');
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function clampBox(box: FloatingBoxState): FloatingBoxState {
+  const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
+  const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
+  const width = clamp(box.width, 360, Math.max(360, viewportWidth - 24));
+  const height = clamp(box.height, 320, Math.max(320, viewportHeight - 64));
+
+  return {
+    x: clamp(box.x, 12, viewportWidth - width - 12),
+    y: clamp(box.y, 12, viewportHeight - height - 12),
+    width,
+    height,
+  };
+}
+
+function clampSmallBox(box: FloatingBoxState): FloatingBoxState {
+  const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
+  const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
+  const width = clamp(box.width, 280, Math.max(280, viewportWidth - 24));
+  const height = clamp(box.height, 190, Math.max(190, viewportHeight - 40));
+
+  return {
+    x: clamp(box.x, 12, viewportWidth - width - 12),
+    y: clamp(box.y, 12, viewportHeight - height - 12),
+    width,
+    height,
+  };
+}
+
+function clampFollowUpBox(box: FloatingBoxState): FloatingBoxState {
+  const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
+  const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
+  const width = clamp(box.width, 340, Math.max(340, viewportWidth - 24));
+  const height = clamp(box.height, 260, Math.max(260, viewportHeight - 40));
+
+  return {
+    x: clamp(box.x, 12, viewportWidth - width - 12),
+    y: clamp(box.y, 12, viewportHeight - height - 12),
+    width,
+    height,
+  };
+}
+
 type PdfPageProps = {
   pdf: PDFDocumentProxy;
   pageNumber: number;
+  zoomScale: number;
   capturePageNumber: number | null;
   drag: DragState | null;
   snippets: Array<{ snippet: ReadingSnippet; index: number }>;
@@ -134,6 +242,7 @@ type PdfPageProps = {
 function PdfPage({
   pdf,
   pageNumber,
+  zoomScale,
   capturePageNumber,
   drag,
   snippets,
@@ -164,7 +273,7 @@ function PdfPage({
         return;
       }
 
-      const viewport = page.getViewport({ scale: 1.45 });
+      const viewport = page.getViewport({ scale: zoomScale });
       const context = canvas.getContext('2d');
       if (!context) {
         return;
@@ -203,7 +312,7 @@ function PdfPage({
       renderTask?.cancel();
       registerCanvas(pageNumber, null);
     };
-  }, [pageNumber, pdf, registerCanvas]);
+  }, [pageNumber, pdf, registerCanvas, zoomScale]);
 
   const region =
     drag && drag.pageNumber === pageNumber ? getRegionFromDrag(drag) : null;
@@ -269,8 +378,10 @@ function PdfPage({
           return null;
         }
 
-        const anchorLeft = (snippet.region.x + snippet.region.width) * scaleX;
+        const anchorLeft = snippet.region.x * scaleX;
         const anchorTop = snippet.region.y * scaleY;
+        const anchorWidth = Math.max(24, snippet.region.width * scaleX);
+        const anchorHeight = Math.max(18, snippet.region.height * scaleY);
 
         return (
           <button
@@ -280,15 +391,22 @@ function PdfPage({
               event.stopPropagation();
               onOpenSnippet(index);
             }}
-            className="absolute z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-[var(--accent-primary)] text-xs font-semibold text-white shadow-custom transition hover:scale-105"
+            className="group absolute z-10 rounded-[6px] bg-[var(--accent-primary)]/10 outline-none transition hover:bg-[var(--accent-primary)]/16 focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)]"
             style={{
-              left: `${Math.max(8, anchorLeft - 16)}px`,
-              top: `${Math.max(8, anchorTop - 16)}px`,
+              left: `${anchorLeft}px`,
+              top: `${anchorTop}px`,
+              width: `${anchorWidth}px`,
+              height: `${anchorHeight}px`,
             }}
-            aria-label={`打开${snippet.anchorLabel}的历史问答`}
+            aria-label={`打开${snippet.anchorLabel}的问答小框`}
             title={snippet.anchorLabel}
           >
-            {index + 1}
+            <span className="pointer-events-none absolute inset-x-0 bottom-0 border-b-2 border-[var(--accent-primary)]" />
+            <span className="pointer-events-none absolute bottom-0 left-0 h-4 border-l-2 border-[var(--accent-primary)]" />
+            <span className="pointer-events-none absolute bottom-0 right-0 h-4 border-r-2 border-[var(--accent-primary)]" />
+            <span className="pointer-events-none absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full border border-white bg-[var(--accent-primary)] px-1 text-[10px] font-semibold leading-none text-white opacity-0 shadow-custom transition group-hover:opacity-100 group-focus-visible:opacity-100">
+              {index + 1}
+            </span>
           </button>
         );
       })}
@@ -313,16 +431,206 @@ export default function PdfReadingSurface({
 
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [zoomScale, setZoomScale] = useState(1);
   const [capturePageNumber, setCapturePageNumber] = useState<number | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
-  const [pendingCapture, setPendingCapture] = useState<{
-    pageNumber: number;
-    region: ReadingSnippetRegion;
-    imageDataUrl: string;
-  } | null>(null);
+  const [pendingCapture, setPendingCapture] = useState<PendingCaptureState | null>(null);
   const [captureQuestion, setCaptureQuestion] = useState('');
+  const [captureAnswer, setCaptureAnswer] = useState('');
+  const [captureError, setCaptureError] = useState('');
+  const [isCaptureSending, setIsCaptureSending] = useState(false);
+  const [answerSelection, setAnswerSelection] = useState('');
+  const [answerFollowUpQuestion, setAnswerFollowUpQuestion] = useState('');
+  const [answerSelectionMenu, setAnswerSelectionMenu] =
+    useState<FloatingBoxState | null>(null);
+  const [isCaptureContextExpanded, setIsCaptureContextExpanded] = useState(true);
+  const [captureFollowUps, setCaptureFollowUps] = useState<CaptureFollowUp[]>([]);
+  const [contextPaneWidth, setContextPaneWidth] = useState(160);
+  const [isResizingContextPane, setIsResizingContextPane] = useState(false);
+  const [captureBox, setCaptureBox] = useState<FloatingBoxState>({
+    x: 0,
+    y: 96,
+    width: 544,
+    height: 520,
+  });
+  const [captureBoxDrag, setCaptureBoxDrag] = useState<CaptureBoxDragState | null>(null);
+  const [answerSelectionMenuDrag, setAnswerSelectionMenuDrag] =
+    useState<CaptureBoxDragState | null>(null);
+  const [followUpDrag, setFollowUpDrag] = useState<FollowUpDragState | null>(null);
 
+  const answerRef = useRef<HTMLDivElement | null>(null);
+  const captureBoxRef = useRef<HTMLDivElement | null>(null);
   const canvasRefs = useRef(new Map<number, HTMLCanvasElement>());
+
+  useEffect(() => {
+    setCaptureBox((box) =>
+      clampBox({
+        ...box,
+        x:
+          box.x > 0
+            ? box.x
+            : (typeof window === 'undefined' ? 1024 : window.innerWidth) -
+              box.width -
+              16,
+      })
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!captureBoxDrag) {
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const deltaX = event.clientX - captureBoxDrag.startX;
+      const deltaY = event.clientY - captureBoxDrag.startY;
+      const { box, mode } = captureBoxDrag;
+
+      if (mode === 'move') {
+        setCaptureBox(
+          clampBox({
+            ...box,
+            x: box.x + deltaX,
+            y: box.y + deltaY,
+          })
+        );
+        return;
+      }
+
+      if (mode === 'resize-left') {
+        setCaptureBox(
+          clampBox({
+            x: box.x + deltaX,
+            y: box.y,
+            width: box.width - deltaX,
+            height: box.height,
+          })
+        );
+        return;
+      }
+
+      setCaptureBox(
+        clampBox({
+          ...box,
+          width: box.width + deltaX,
+          height: box.height + deltaY,
+        })
+      );
+    };
+
+    const handlePointerUp = () => setCaptureBoxDrag(null);
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [captureBoxDrag]);
+
+  useEffect(() => {
+    if (!followUpDrag) {
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const deltaX = event.clientX - followUpDrag.startX;
+      const deltaY = event.clientY - followUpDrag.startY;
+      const { box, mode } = followUpDrag;
+      setCaptureFollowUps((current) =>
+        current.map((followUp) =>
+          followUp.id === followUpDrag.id
+            ? {
+                ...followUp,
+                box:
+                  mode === 'move'
+                    ? clampFollowUpBox({
+                        ...box,
+                        x: box.x + deltaX,
+                        y: box.y + deltaY,
+                      })
+                    : mode === 'resize-left'
+                      ? clampFollowUpBox({
+                          x: box.x + deltaX,
+                          y: box.y,
+                          width: box.width - deltaX,
+                          height: box.height,
+                        })
+                      : clampFollowUpBox({
+                          ...box,
+                          width: box.width + deltaX,
+                          height: box.height + deltaY,
+                        }),
+              }
+            : followUp
+        )
+      );
+    };
+
+    const handlePointerUp = () => setFollowUpDrag(null);
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [followUpDrag]);
+
+  useEffect(() => {
+    if (!answerSelectionMenuDrag) {
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const deltaX = event.clientX - answerSelectionMenuDrag.startX;
+      const deltaY = event.clientY - answerSelectionMenuDrag.startY;
+      const { box, mode } = answerSelectionMenuDrag;
+
+      if (mode === 'move') {
+        setAnswerSelectionMenu(
+          clampSmallBox({
+            ...box,
+            x: box.x + deltaX,
+            y: box.y + deltaY,
+          })
+        );
+        return;
+      }
+
+      if (mode === 'resize-left') {
+        setAnswerSelectionMenu(
+          clampSmallBox({
+            x: box.x + deltaX,
+            y: box.y,
+            width: box.width - deltaX,
+            height: box.height,
+          })
+        );
+        return;
+      }
+
+      setAnswerSelectionMenu(
+        clampSmallBox({
+          ...box,
+          width: box.width + deltaX,
+          height: box.height + deltaY,
+        })
+      );
+    };
+
+    const handlePointerUp = () => setAnswerSelectionMenuDrag(null);
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [answerSelectionMenuDrag]);
 
   useEffect(() => {
     if (!pdf) {
@@ -357,6 +665,32 @@ export default function PdfReadingSurface({
     };
   }, [fileUrl, pdf]);
 
+  useEffect(() => {
+    if (!isResizingContextPane) {
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const box = captureBoxRef.current;
+      if (!box) {
+        return;
+      }
+
+      const rect = box.getBoundingClientRect();
+      setContextPaneWidth(Math.min(320, Math.max(96, event.clientX - rect.left - 16)));
+    };
+
+    const stopResizing = () => setIsResizingContextPane(false);
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopResizing);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopResizing);
+    };
+  }, [isResizingContextPane]);
+
   const registerCanvas = useCallback((pageNumber: number, canvas: HTMLCanvasElement | null) => {
     if (canvas) {
       canvasRefs.current.set(pageNumber, canvas);
@@ -381,6 +715,13 @@ export default function PdfReadingSurface({
     const point = getCanvasPoint(canvas, event);
     setPendingCapture(null);
     setCaptureQuestion('');
+    setCaptureAnswer('');
+    setCaptureError('');
+    setAnswerSelection('');
+    setAnswerFollowUpQuestion('');
+    setAnswerSelectionMenu(null);
+    setIsCaptureContextExpanded(true);
+    setCaptureFollowUps([]);
     setDrag({
       pageNumber,
       startX: point.x,
@@ -444,28 +785,237 @@ export default function PdfReadingSurface({
       imageDataUrl,
     });
     setCaptureQuestion('');
+    setCaptureAnswer('');
+    setCaptureError('');
+    setAnswerSelection('');
+    setAnswerFollowUpQuestion('');
+    setAnswerSelectionMenu(null);
+    setIsCaptureContextExpanded(true);
+    setCaptureFollowUps([]);
   };
 
-  const submitCapture = (mode: ScreenshotPayload['mode']) => {
+  const submitCapture = async (mode: ScreenshotPayload['mode']) => {
     if (!pendingCapture) {
       return;
     }
 
-    onScreenshotQuestion({
+    const payload = {
       ...pendingCapture,
       mode,
       text: `PDF 第 ${pendingCapture.pageNumber} 页截图区域`,
       question: captureQuestion.trim(),
-    });
+    };
+
+    if (mode === 'direct') {
+      setIsCaptureSending(true);
+      setCaptureAnswer('');
+      setCaptureError('');
+      setAnswerSelection('');
+      setAnswerFollowUpQuestion('');
+      setAnswerSelectionMenu(null);
+      setIsCaptureContextExpanded(true);
+      setCaptureFollowUps([]);
+      setCapturePageNumber(null);
+
+      try {
+        const result = await onScreenshotQuestion(payload);
+        if (result?.error) {
+          setCaptureError(result.error);
+        } else {
+          setPendingCapture(null);
+          setCaptureQuestion('');
+          setIsCaptureContextExpanded(true);
+        }
+      } catch (error) {
+        setCaptureError(
+          error instanceof Error ? error.message : '截图提问暂时失败，请稍后重试。'
+        );
+      } finally {
+        setIsCaptureSending(false);
+      }
+      return;
+    }
+
+    void onScreenshotQuestion(payload);
     setPendingCapture(null);
     setCaptureQuestion('');
+    setCaptureAnswer('');
+    setCaptureError('');
+    setAnswerSelection('');
+    setAnswerFollowUpQuestion('');
+    setAnswerSelectionMenu(null);
+    setIsCaptureContextExpanded(true);
+    setCaptureFollowUps([]);
     setCapturePageNumber(null);
   };
+
+  const openSnippetCaptureBox = (_snippet: ReadingSnippet, index: number) => {
+    onOpenSnippet(index);
+  };
+
+  const captureAnswerSelection = () => {
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() ?? '';
+    const anchorNode = selection?.anchorNode;
+
+    if (
+      !text ||
+      !anchorNode ||
+      !answerRef.current ||
+      !answerRef.current.contains(anchorNode)
+    ) {
+      return;
+    }
+
+    const rect =
+      selection && selection.rangeCount > 0
+        ? selection.getRangeAt(0).getBoundingClientRect()
+        : null;
+
+    setAnswerSelection(text);
+    setAnswerFollowUpQuestion('');
+    setAnswerSelectionMenu((current) =>
+      clampSmallBox({
+      x: clamp(
+        rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
+        12,
+        window.innerWidth - 340
+      ),
+      y: clamp(rect ? rect.bottom + 10 : 80, 12, window.innerHeight - 190),
+        width: current?.width ?? 320,
+        height: current?.height ?? 220,
+      })
+    );
+  };
+
+  const askAboutAnswerSelection = async () => {
+    if (!pendingCapture || !answerSelection.trim()) {
+      return;
+    }
+
+    const followUpId = `capture-follow-up-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    const selectedText = answerSelection.trim();
+    const question = answerFollowUpQuestion.trim();
+    const sourceBox =
+      answerSelectionMenu ??
+      clampSmallBox({
+        x: window.innerWidth - 380,
+        y: 120,
+        width: 320,
+        height: 220,
+      });
+    const followUpBox = clampFollowUpBox({
+      x: sourceBox.x,
+      y: sourceBox.y + 12,
+      width: Math.max(380, sourceBox.width),
+      height: 320,
+    });
+
+    const prompt = answerFollowUpQuestion.trim()
+      ? `${answerFollowUpQuestion.trim()}\n\n引用刚才回答中的片段：\n${answerSelection}`
+      : `请基于刚才回答中的这段内容继续解释：\n${answerSelection}`;
+
+    setIsCaptureSending(true);
+    setCaptureError('');
+    setCaptureFollowUps((current) => [
+      ...current,
+      {
+        id: followUpId,
+        selectedText,
+        question,
+        answer: '',
+        error: '',
+        isOpen: true,
+        isLoading: true,
+        box: followUpBox,
+      },
+    ]);
+    setAnswerSelection('');
+    setAnswerFollowUpQuestion('');
+    setAnswerSelectionMenu(null);
+    window.getSelection()?.removeAllRanges();
+
+    try {
+      const result = await onScreenshotQuestion({
+        ...pendingCapture,
+        mode: 'direct',
+        text: `PDF 第 ${pendingCapture.pageNumber} 页截图区域`,
+        question: prompt,
+      });
+
+      if (result?.error) {
+        setCaptureFollowUps((current) =>
+          current.map((followUp) =>
+            followUp.id === followUpId
+              ? { ...followUp, error: result.error ?? '', isLoading: false }
+              : followUp
+          )
+        );
+      } else if (result?.answer) {
+        setCaptureFollowUps((current) =>
+          current.map((followUp) =>
+            followUp.id === followUpId
+              ? { ...followUp, answer: result.answer ?? '', isLoading: false }
+              : followUp
+          )
+        );
+        setAnswerSelection('');
+        setAnswerFollowUpQuestion('');
+        window.getSelection()?.removeAllRanges();
+      }
+    } catch (error) {
+      setCaptureFollowUps((current) =>
+        current.map((followUp) =>
+          followUp.id === followUpId
+            ? {
+                ...followUp,
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : '截图追问暂时失败，请稍后重试。',
+                isLoading: false,
+              }
+            : followUp
+        )
+      );
+    } finally {
+      setIsCaptureSending(false);
+    }
+  };
+
+  const annotatedCaptureAnswer = captureFollowUps
+    .filter((followUp) => followUp.selectedText)
+    .reduce((content, followUp) => {
+      const text = followUp.selectedText.trim();
+      if (!text) {
+        return content;
+      }
+
+      const mark = `<mark data-capture-follow-up-id="${followUp.id}" style="background: transparent; color: inherit; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 0.22em; text-decoration-color: var(--accent-primary); cursor: pointer;">${escapeHtml(
+        text
+      )}</mark>`;
+
+      return content.replace(new RegExp(escapeRegExp(text)), mark);
+    }, captureAnswer);
 
   const snippetsByPage = (pageNumber: number) =>
     snippets
       .map((snippet, index) => ({ snippet, index }))
-      .filter(({ snippet }) => snippet.pageNumber === pageNumber && snippet.region);
+      .filter(
+        ({ snippet }) =>
+          snippet.source === 'pdf_screenshot' &&
+          snippet.pageNumber === pageNumber &&
+          snippet.region &&
+          (snippet.messages ?? []).length > 0
+      );
+
+  const updateZoom = (nextScale: number) => {
+    setZoomScale(Math.min(1.6, Math.max(0.7, Number(nextScale.toFixed(2)))));
+  };
+  const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
+  const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
 
   return (
     <div className="relative space-y-3">
@@ -480,6 +1030,43 @@ export default function PdfReadingSurface({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <div className="inline-flex items-center rounded-full border border-[var(--border-color)] bg-[var(--card-bg)] text-xs text-[var(--foreground)]">
+              <button
+                type="button"
+                onClick={() => updateZoom(zoomScale - 0.1)}
+                className="min-h-8 px-3 transition hover:text-[var(--accent-primary)]"
+                aria-label="缩小 PDF"
+              >
+                -
+              </button>
+              <select
+                value={zoomScale.toFixed(2)}
+                onChange={(event) => updateZoom(Number(event.target.value))}
+                className="min-h-8 bg-transparent px-2 text-xs outline-none"
+                aria-label="PDF 缩放比例"
+              >
+                <option value="0.70">70%</option>
+                <option value="0.75">75%</option>
+                <option value="0.80">80%</option>
+                <option value="0.90">90%</option>
+                <option value="1.00">100%</option>
+                <option value="1.10">110%</option>
+                <option value="1.20">120%</option>
+                <option value="1.30">130%</option>
+                <option value="1.40">140%</option>
+                <option value="1.45">145%</option>
+                <option value="1.50">150%</option>
+                <option value="1.60">160%</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => updateZoom(zoomScale + 0.1)}
+                className="min-h-8 px-3 transition hover:text-[var(--accent-primary)]"
+                aria-label="放大 PDF"
+              >
+                +
+              </button>
+            </div>
             <a
               href={fileUrl}
               target="_blank"
@@ -493,18 +1080,105 @@ export default function PdfReadingSurface({
       </div>
 
       {pendingCapture ? (
-        <div className="absolute right-4 top-24 z-20 w-[min(34rem,calc(100%-2rem))] rounded-[24px] border border-[var(--accent-primary)]/28 bg-[var(--card-bg)]/96 p-4 shadow-custom backdrop-blur-sm">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,10rem)_1fr]">
+        <div
+          ref={captureBoxRef}
+          className="fixed z-40 flex flex-col rounded-[24px] border border-[var(--accent-primary)]/28 bg-[var(--card-bg)]/96 p-4 shadow-custom backdrop-blur-sm"
+          style={{
+            left: `${captureBox.x}px`,
+            top: `${captureBox.y}px`,
+            width: `${captureBox.width}px`,
+            height: `${captureBox.height}px`,
+          }}
+        >
+          <button
+            type="button"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              setCaptureBoxDrag({
+                mode: 'resize-left',
+                startX: event.clientX,
+                startY: event.clientY,
+                box: captureBox,
+              });
+            }}
+            className="absolute left-0 top-12 h-[calc(100%-4rem)] w-2 -translate-x-1 cursor-ew-resize rounded-full bg-transparent transition hover:bg-[var(--accent-primary)]/60"
+            aria-label="拖动调整左侧宽度"
+            title="拖动调整左侧宽度"
+          />
+          <div
+            className="mb-3 flex cursor-move items-start justify-between gap-3"
+            onPointerDown={(event) => {
+              if (event.button !== 0) {
+                return;
+              }
+              const target = event.target as HTMLElement | null;
+              if (target?.closest('button, textarea, input, a')) {
+                return;
+              }
+              event.preventDefault();
+              setCaptureBoxDrag({
+                mode: 'move',
+                startX: event.clientX,
+                startY: event.clientY,
+                box: captureBox,
+              });
+            }}
+          >
+            <p className="text-sm font-semibold text-[var(--foreground)]">
+              第 {pendingCapture.pageNumber} 页截图问答
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingCapture(null);
+                setCaptureQuestion('');
+                setCaptureAnswer('');
+                setCaptureError('');
+                setAnswerSelection('');
+                setAnswerFollowUpQuestion('');
+                setAnswerSelectionMenu(null);
+                setCaptureFollowUps([]);
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border-color)] text-xs text-[var(--muted)] transition hover:text-[var(--accent-primary)]"
+              aria-label="关闭截图问答框"
+            >
+              ×
+            </button>
+          </div>
+          <div
+            className={`grid min-h-0 flex-1 gap-3 ${isCaptureContextExpanded ? '' : 'grid-cols-1'}`}
+            style={
+              isCaptureContextExpanded
+                ? { gridTemplateColumns: `${contextPaneWidth}px 0.5rem minmax(0,1fr)` }
+                : undefined
+            }
+          >
             <img
               src={pendingCapture.imageDataUrl}
               alt={`第 ${pendingCapture.pageNumber} 页截图`}
-              className="max-h-40 w-full rounded-2xl border border-[var(--border-color)] bg-white object-contain"
+              className={`${isCaptureContextExpanded ? 'block' : 'hidden'} max-h-44 w-full rounded-2xl border border-[var(--border-color)] bg-white object-contain`}
             />
-            <div>
-              <p className="text-sm font-semibold text-[var(--foreground)]">
-                已框选第 {pendingCapture.pageNumber} 页截图
-              </p>
-              <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
+            {isCaptureContextExpanded ? (
+              <button
+                type="button"
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  setIsResizingContextPane(true);
+                }}
+                className="h-full min-h-40 cursor-col-resize rounded-full bg-[var(--border-color)] transition hover:bg-[var(--accent-primary)]"
+                aria-label="拖动调整左侧截图宽度"
+                title="拖动调整左侧截图宽度"
+              />
+            ) : null}
+            <div className="flex min-h-0 flex-col">
+              <button
+                type="button"
+                onClick={() => setIsCaptureContextExpanded((value) => !value)}
+                className="rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--accent-primary)]"
+              >
+                {isCaptureContextExpanded ? '收起截图和问题' : '展开截图和问题'}
+              </button>
+              <p className={`${isCaptureContextExpanded ? 'block' : 'hidden'} mt-2 text-xs leading-5 text-[var(--muted)]`}>
                 先写你真正想问的问题。也可以先存成片段，稍后再围绕它连续追问。
               </p>
               <textarea
@@ -512,20 +1186,22 @@ export default function PdfReadingSurface({
                 onChange={(event) => setCaptureQuestion(event.target.value)}
                 rows={3}
                 placeholder="例如：为什么这里可以这样变形？这张图和上面的公式是什么关系？"
-                className="input-japanese mt-3 w-full rounded-2xl px-3 py-2 text-sm leading-6 text-[var(--foreground)]"
+                className={`${isCaptureContextExpanded ? 'block' : 'hidden'} input-japanese mt-3 w-full rounded-2xl px-3 py-2 text-sm leading-6 text-[var(--foreground)]`}
               />
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => submitCapture('direct')}
-                  className="btn-japanese inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs"
+                  onClick={() => void submitCapture('direct')}
+                  disabled={isCaptureSending}
+                  className="btn-japanese inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  直接截图提问
+                  {isCaptureSending ? '正在回答...' : '直接截图提问'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => submitCapture('stage')}
-                  className="inline-flex items-center justify-center rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--foreground)] transition hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
+                  onClick={() => void submitCapture('stage')}
+                  disabled={isCaptureSending}
+                  className="inline-flex items-center justify-center rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--foreground)] transition hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   建立截图片段
                 </button>
@@ -534,16 +1210,298 @@ export default function PdfReadingSurface({
                   onClick={() => {
                     setPendingCapture(null);
                     setCaptureQuestion('');
+                    setCaptureAnswer('');
+                    setCaptureError('');
+                    setAnswerSelection('');
+                    setAnswerFollowUpQuestion('');
+                    setAnswerSelectionMenu(null);
+                    setCaptureFollowUps([]);
                   }}
                   className="inline-flex items-center justify-center rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--accent-primary)]"
                 >
                   取消
                 </button>
               </div>
+              {captureError ? (
+                <div className="mt-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm leading-6 text-rose-700 dark:text-rose-300">
+                  {captureError}
+                </div>
+              ) : null}
+              {isCaptureSending ? (
+                <div className="mt-3 rounded-2xl border border-[var(--border-color)] bg-[var(--background)]/72 px-3 py-3 text-sm text-[var(--muted)]">
+                  回答中...
+                </div>
+              ) : null}
+              {captureAnswer ? (
+                <>
+                  <div
+                    ref={answerRef}
+                    onMouseUp={() => {
+                      window.setTimeout(captureAnswerSelection, 0);
+                    }}
+                    onContextMenu={(event) => {
+                      const selection = window.getSelection();
+                      const text = selection?.toString().trim() ?? '';
+                      if (!text) {
+                        return;
+                      }
+                      event.preventDefault();
+                      captureAnswerSelection();
+                    }}
+                    onClick={(event) => {
+                      const target = event.target as HTMLElement | null;
+                      const mark = target?.closest('[data-capture-follow-up-id]');
+                      const id = mark?.getAttribute('data-capture-follow-up-id');
+                      if (!id) {
+                        return;
+                      }
+                      setCaptureFollowUps((current) =>
+                        current.map((followUp) =>
+                          followUp.id === id ? { ...followUp, isOpen: true } : followUp
+                        )
+                      );
+                    }}
+                    className="mt-3 min-h-0 flex-1 overflow-auto rounded-2xl border border-[var(--border-color)] bg-[var(--background)]/72 px-3 py-2 text-sm leading-6 text-[var(--foreground)]"
+                  >
+                    <Markdown content={annotatedCaptureAnswer} />
+                  </div>
+                  {answerSelection && answerSelectionMenu ? (
+                    <div
+                      className="fixed z-30 flex flex-col rounded-2xl border border-[var(--accent-primary)]/25 bg-[var(--card-bg)]/96 p-3 shadow-custom backdrop-blur-sm"
+                      style={{
+                        left: `${answerSelectionMenu.x}px`,
+                        top: `${answerSelectionMenu.y}px`,
+                        width: `${answerSelectionMenu.width}px`,
+                        height: `${answerSelectionMenu.height}px`,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          setAnswerSelectionMenuDrag({
+                            mode: 'resize-left',
+                            startX: event.clientX,
+                            startY: event.clientY,
+                            box: answerSelectionMenu,
+                          });
+                        }}
+                        className="absolute left-0 top-10 h-[calc(100%-3.25rem)] w-2 -translate-x-1 cursor-ew-resize rounded-full bg-transparent transition hover:bg-[var(--accent-primary)]/60"
+                        aria-label="拖动调整左侧宽度"
+                        title="拖动调整左侧宽度"
+                      />
+                      <div
+                        className="flex cursor-move items-start justify-between gap-3"
+                        onPointerDown={(event) => {
+                          if (event.button !== 0) {
+                            return;
+                          }
+                          const target = event.target as HTMLElement | null;
+                          if (target?.closest('button, textarea, input, a')) {
+                            return;
+                          }
+                          event.preventDefault();
+                          setAnswerSelectionMenuDrag({
+                            mode: 'move',
+                            startX: event.clientX,
+                            startY: event.clientY,
+                            box: answerSelectionMenu,
+                          });
+                        }}
+                      >
+                        <p className="line-clamp-2 min-w-0 text-xs leading-5 text-[var(--muted)]">
+                          {answerSelection}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAnswerSelection('');
+                            setAnswerFollowUpQuestion('');
+                            setAnswerSelectionMenu(null);
+                            window.getSelection()?.removeAllRanges();
+                          }}
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--border-color)] text-xs text-[var(--muted)] hover:text-[var(--accent-primary)]"
+                          aria-label="关闭回答追问框"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <div className="mt-2 min-h-0 flex-1">
+                        <textarea
+                          value={answerFollowUpQuestion}
+                          onChange={(event) =>
+                            setAnswerFollowUpQuestion(event.target.value)
+                          }
+                          placeholder="针对选中的这段回答继续问..."
+                          className="input-japanese h-full min-h-20 w-full resize-none rounded-2xl px-3 py-2 text-xs leading-5 text-[var(--foreground)]"
+                        />
+                      </div>
+                      <div className="mt-2 flex shrink-0 flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void askAboutAnswerSelection()}
+                          disabled={isCaptureSending}
+                          className="btn-japanese inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isCaptureSending ? '正在追问...' : '追问选中内容'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAnswerSelection('');
+                            setAnswerFollowUpQuestion('');
+                            window.getSelection()?.removeAllRanges();
+                          }}
+                          className="inline-flex items-center justify-center rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--accent-primary)]"
+                        >
+                          取消
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          setAnswerSelectionMenuDrag({
+                            mode: 'resize',
+                            startX: event.clientX,
+                            startY: event.clientY,
+                            box: answerSelectionMenu,
+                          });
+                        }}
+                        className="absolute bottom-2 right-2 h-5 w-5 cursor-nwse-resize rounded-md border-b-2 border-r-2 border-[var(--accent-primary)]/70"
+                        aria-label="拖动调整回答追问框大小"
+                        title="拖动调整回答追问框大小"
+                      />
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
             </div>
           </div>
+          <button
+            type="button"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              setCaptureBoxDrag({
+                mode: 'resize',
+                startX: event.clientX,
+                startY: event.clientY,
+                box: captureBox,
+              });
+            }}
+            className="absolute bottom-2 right-2 h-5 w-5 cursor-nwse-resize rounded-md border-b-2 border-r-2 border-[var(--accent-primary)]/70"
+            aria-label="拖动调整截图问答框大小"
+            title="拖动调整截图问答框大小"
+          />
         </div>
       ) : null}
+
+      {captureFollowUps
+        .filter((followUp) => followUp.isOpen)
+        .map((followUp) => (
+          <div
+            key={followUp.id}
+            className="fixed z-30 flex flex-col overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--card-bg)]/96 p-3 shadow-custom backdrop-blur-sm"
+            style={{
+              left: `${followUp.box.x}px`,
+              top: `${followUp.box.y}px`,
+              width: `${followUp.box.width}px`,
+              height: `${followUp.box.height}px`,
+            }}
+          >
+            <button
+              type="button"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                setFollowUpDrag({
+                  id: followUp.id,
+                  mode: 'resize-left',
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  box: followUp.box,
+                });
+              }}
+              className="absolute left-0 top-10 h-[calc(100%-3.25rem)] w-2 -translate-x-1 cursor-ew-resize rounded-full bg-transparent transition hover:bg-[var(--accent-primary)]/60"
+              aria-label="拖动调整左侧宽度"
+              title="拖动调整左侧宽度"
+            />
+            <div
+              className="flex cursor-move items-start justify-between gap-3"
+              onPointerDown={(event) => {
+                if (event.button !== 0) {
+                  return;
+                }
+                const target = event.target as HTMLElement | null;
+                if (target?.closest('button, textarea, input, a')) {
+                  return;
+                }
+                event.preventDefault();
+                setFollowUpDrag({
+                  id: followUp.id,
+                  mode: 'move',
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  box: followUp.box,
+                });
+              }}
+            >
+              <p className="line-clamp-2 text-xs leading-5 text-[var(--muted)]">
+                {followUp.selectedText}
+              </p>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCaptureFollowUps((current) =>
+                      current.map((item) =>
+                        item.id === followUp.id ? { ...item, isOpen: false } : item
+                      )
+                    )
+                  }
+                  className="rounded-full border border-[var(--border-color)] px-2 py-1 text-xs text-[var(--muted)] hover:text-[var(--accent-primary)]"
+                >
+                  关闭
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCaptureFollowUps((current) =>
+                      current.filter((item) => item.id !== followUp.id)
+                    )
+                  }
+                  className="rounded-full border border-rose-500/25 px-2 py-1 text-xs text-rose-600 hover:bg-rose-500/10"
+                >
+                  删除
+                </button>
+              </div>
+            </div>
+            <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-xl border border-[var(--border-color)] bg-[var(--background)]/72 px-3 py-2 text-sm leading-6 text-[var(--foreground)]">
+              {followUp.isLoading ? (
+                <p className="text-[var(--muted)]">回答中...</p>
+              ) : followUp.error ? (
+                <p className="text-rose-600 dark:text-rose-300">{followUp.error}</p>
+              ) : (
+                <Markdown content={followUp.answer} />
+              )}
+            </div>
+            <button
+              type="button"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                setFollowUpDrag({
+                  id: followUp.id,
+                  mode: 'resize',
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  box: followUp.box,
+                });
+              }}
+              className="absolute bottom-2 right-2 h-5 w-5 cursor-nwse-resize rounded-md border-b-2 border-r-2 border-[var(--accent-primary)]/70"
+              aria-label="拖动调整追问回答框大小"
+              title="拖动调整追问回答框大小"
+            />
+          </div>
+        ))}
 
       <div className="overflow-hidden rounded-[24px] border border-[var(--border-color)] bg-white">
         {pdf ? (
@@ -558,6 +1516,7 @@ export default function PdfReadingSurface({
                   key={index + 1}
                   pdf={pdfDocument}
                   pageNumber={index + 1}
+                  zoomScale={zoomScale}
                   capturePageNumber={capturePageNumber}
                   drag={drag}
                   snippets={snippetsByPage(index + 1)}
@@ -565,13 +1524,26 @@ export default function PdfReadingSurface({
                   onStartCapture={(nextPageNumber) => {
                     setCapturePageNumber(nextPageNumber);
                     setPendingCapture(null);
+                    setCaptureAnswer('');
+                    setCaptureError('');
+                    setAnswerSelection('');
+                    setAnswerFollowUpQuestion('');
                   }}
                   onCancelCapture={() => {
                     setCapturePageNumber(null);
                     setPendingCapture(null);
+                    setCaptureAnswer('');
+                    setCaptureError('');
+                    setAnswerSelection('');
+                    setAnswerFollowUpQuestion('');
                     setDrag(null);
                   }}
-                  onOpenSnippet={onOpenSnippet}
+                  onOpenSnippet={(snippetIndex) => {
+                    const snippet = snippets[snippetIndex];
+                    if (snippet) {
+                      openSnippetCaptureBox(snippet, snippetIndex);
+                    }
+                  }}
                   onPointerDown={beginDrag}
                   onPointerMove={updateDrag}
                   onPointerUp={finishDrag}
