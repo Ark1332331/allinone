@@ -7,6 +7,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from api.services.learning_chat import build_learning_chat_images, build_learning_chat_prompt
+from api.models.learning_chat import LearningChatRequest
 
 
 pytestmark = pytest.mark.unit
@@ -51,6 +52,9 @@ def test_build_learning_chat_prompt_includes_material_snippets_background_and_me
     assert "课程大纲" in prompt
     assert "观察、判断并指出学习盲点" in prompt
     assert "这段为什么重要？" in prompt
+    assert "数学表达式" in prompt
+    assert "$...$" in prompt
+    assert "$$...$$" in prompt
 
 
 def test_build_learning_chat_prompt_marks_pdf_screenshot_snippets():
@@ -115,6 +119,30 @@ def test_build_learning_chat_images_extracts_data_url_images():
             },
         }
     ]
+
+
+def test_learning_chat_request_accepts_assistant_reply_snippets():
+    request = LearningChatRequest(
+        material={
+            "id": "m1",
+            "title": "问答片段",
+            "primaryRole": "textbook",
+            "fullContent": "原材料内容",
+        },
+        selected_snippets=[
+            {
+                "materialId": "m1",
+                "text": "回答里选中的内容",
+                "anchorLabel": "回答片段 1",
+                "source": "assistant_reply",
+            }
+        ],
+        current_target={"title": "理解追问", "backgroundMaterials": []},
+        background_materials=[],
+        messages=[{"role": "user", "content": "继续解释这句话"}],
+    )
+
+    assert request.selected_snippets[0].source == "assistant_reply"
 
 
 if __name__ == "__main__":

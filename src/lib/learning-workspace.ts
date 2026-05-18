@@ -235,6 +235,7 @@ export function addSnippet(
 ): ReadingSnippet[] {
   const text = nextSnippet.text.trim();
   const anchorLabel = nextSnippet.anchorLabel.trim();
+  const source = nextSnippet.source ?? 'text';
 
   if (!text || !anchorLabel) {
     return snippets;
@@ -243,7 +244,11 @@ export function addSnippet(
   if (
     snippets.some(
       (snippet) =>
-        snippet.materialId === nextSnippet.materialId && snippet.text === text
+        snippet.materialId === nextSnippet.materialId &&
+        snippet.text === text &&
+        (snippet.source ?? 'text') === source &&
+        (source !== 'assistant_reply' ||
+          (snippet.parentSnippetId ?? null) === (nextSnippet.parentSnippetId ?? null))
     )
   ) {
     return snippets;
@@ -263,7 +268,8 @@ export function addSnippet(
       materialId: nextSnippet.materialId,
       text,
       anchorLabel,
-      source: nextSnippet.source,
+      source,
+      parentSnippetId: nextSnippet.parentSnippetId,
       imageDataUrl: nextSnippet.imageDataUrl,
       pageNumber: nextSnippet.pageNumber,
       region: nextSnippet.region,
@@ -279,23 +285,31 @@ export function getMaterialSnippetHistory(
   const material = getMaterialById(workspace, materialId);
   const snippets = material?.savedSnippets ?? [];
 
-  return snippets.filter((snippet) => (snippet.messages ?? []).length > 0).sort((left, right) => {
-    const leftPage = left.pageNumber ?? Number.MAX_SAFE_INTEGER;
-    const rightPage = right.pageNumber ?? Number.MAX_SAFE_INTEGER;
-    if (leftPage !== rightPage) {
-      return leftPage - rightPage;
-    }
+  return snippets
+    .filter(
+      (snippet) =>
+        snippet.source === 'pdf_screenshot' &&
+        Boolean(snippet.pageNumber) &&
+        Boolean(snippet.region) &&
+        (snippet.messages ?? []).length > 0
+    )
+    .sort((left, right) => {
+      const leftPage = left.pageNumber ?? Number.MAX_SAFE_INTEGER;
+      const rightPage = right.pageNumber ?? Number.MAX_SAFE_INTEGER;
+      if (leftPage !== rightPage) {
+        return leftPage - rightPage;
+      }
 
-    const leftY = left.region?.y ?? Number.MAX_SAFE_INTEGER;
-    const rightY = right.region?.y ?? Number.MAX_SAFE_INTEGER;
-    if (leftY !== rightY) {
-      return leftY - rightY;
-    }
+      const leftY = left.region?.y ?? Number.MAX_SAFE_INTEGER;
+      const rightY = right.region?.y ?? Number.MAX_SAFE_INTEGER;
+      if (leftY !== rightY) {
+        return leftY - rightY;
+      }
 
-    const leftX = left.region?.x ?? Number.MAX_SAFE_INTEGER;
-    const rightX = right.region?.x ?? Number.MAX_SAFE_INTEGER;
-    return leftX - rightX;
-  });
+      const leftX = left.region?.x ?? Number.MAX_SAFE_INTEGER;
+      const rightX = right.region?.x ?? Number.MAX_SAFE_INTEGER;
+      return leftX - rightX;
+    });
 }
 
 export function removeSnippetAtIndex(

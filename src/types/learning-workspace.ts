@@ -40,6 +40,7 @@ export interface ReadingSnippet {
   text: string;
   anchorLabel: string;
   source?: ReadingSnippetSource;
+  parentSnippetId?: string;
   imageDataUrl?: string;
   pageNumber?: number;
   region?: ReadingSnippetRegion;

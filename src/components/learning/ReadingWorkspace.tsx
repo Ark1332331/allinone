@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { createPortal } from 'react-dom';
 import {
   useEffect,
   useMemo,
@@ -32,13 +33,22 @@ import {
 import { createSubjectShelfPath } from '@/lib/learn-content';
 import { loadModelConfig } from '@/lib/model-config';
 import {
+  annotateContentWithSnippetAnchors,
   buildReadingQuestionContext,
   clampFloatingBox,
   clampSelectionBox,
+  closeFloatingThread,
   createSelectionSnippetDraft,
+  openFloatingThread,
+  reconcileFloatingThreadsAfterSnippetRemoval,
+  getFloatingLayerZIndex,
+  getReadableApiErrorMessage,
   getFloatingThreadPosition,
   getSelectionFallbackPosition,
   getSelectionMenuPosition,
+  shouldSkipGlobalSelectionMenuUpdate,
+  stripRenderedSnippetMarkup,
+  type FloatingThreadBox,
 } from '@/lib/reading-interactions';
 import type {
   LearningChatMessage,
@@ -70,7 +80,7 @@ type FloatingBoxState = {
 };
 
 type SelectionMenuState = FloatingBoxState | null;
-type FloatingThreadState = FloatingBoxState;
+type FloatingThreadState = FloatingThreadBox;
 
 type FloatingThreadDragMode = 'move' | 'resize' | 'resize-left';
 type SelectionMenuDragMode = 'move' | 'resize' | 'resize-left';
@@ -91,6 +101,7 @@ type SelectionMenuDragState = {
 
 type SelectionSource = 'text' | 'pdf_text' | 'pdf_screenshot' | 'assistant_reply';
 type SelectionTarget = 'material' | 'assistant_reply';
+type SelectionMenuPlacement = 'above' | 'below';
 type SelectableElement = HTMLElement & {
   dataset: {
     selectionSource?: SelectionSource;
@@ -114,7 +125,6 @@ type SendQuestionResult = {
 
 type SendQuestionOptions = {
   openPanel?: boolean;
-  restoreQuestionOnError?: boolean;
 };
 
 function trimPreview(text: string, maxLength = 160) {
@@ -125,48 +135,16 @@ function trimPreview(text: string, maxLength = 160) {
   return `${compact.slice(0, maxLength)}...`;
 }
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 function buildAnnotatedContent(
   content: string,
   snippets: ReadingSnippet[],
   shouldAnnotate: (snippet: ReadingSnippet) => boolean = () => true
 ) {
-  let annotated = content;
-
-  snippets.forEach((snippet, index) => {
-    if (!shouldAnnotate(snippet)) {
-      return;
-    }
-
-    const text = snippet.text.trim();
-    if (!text) {
-      return;
-    }
-
-    const mark = `<mark data-snippet-index="${index}" style="background: rgba(196, 106, 62, 0.18); padding: 0 0.18rem; border-radius: 0.35rem; cursor: pointer;">${escapeHtml(
-      text
-    )}</mark>`;
-
-    annotated = annotated.replace(new RegExp(escapeRegExp(text)), mark);
+  return annotateContentWithSnippetAnchors({
+    content,
+    snippets,
+    shouldAnnotate,
   });
-
-  return annotated;
-}
-
-function hasDetailMessage(payload: unknown): payload is { detail?: string } {
-  return typeof payload === 'object' && payload !== null && 'detail' in payload;
 }
 
 function isPreAssessmentResponse(payload: unknown): payload is PreAssessmentResponse {
@@ -207,7 +185,6 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
 
   const [selectedSnippets, setSelectedSnippets] = useState<ReadingSnippet[]>([]);
   const [activeSnippetIndex, setActiveSnippetIndex] = useState<number | null>(null);
-  const [question, setQuestion] = useState('');
   const [chatError, setChatError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
 
@@ -220,19 +197,21 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState>(null);
   const [selectionSource, setSelectionSource] = useState<SelectionSource>('text');
   const [selectionTarget, setSelectionTarget] = useState<SelectionTarget>('material');
+  const [selectionParentSnippetId, setSelectionParentSnippetId] = useState<string | null>(null);
   const [selectionMenuFallback, setSelectionMenuFallback] = useState(false);
   const [selectionMenuDrag, setSelectionMenuDrag] =
     useState<SelectionMenuDragState | null>(null);
-  const [floatingThread, setFloatingThread] = useState<FloatingThreadState | null>(null);
+  const [floatingThreads, setFloatingThreads] = useState<FloatingThreadState[]>([]);
   const [floatingThreadDrag, setFloatingThreadDrag] =
     useState<FloatingThreadDragState | null>(null);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
 
   const contentRef = useRef<HTMLDivElement | null>(null);
   const selectionMenuRef = useRef<HTMLDivElement | null>(null);
-  const floatingThreadRef = useRef<HTMLElement | null>(null);
+  const floatingThreadRefs = useRef<Record<number, HTMLElement | null>>({});
 
   const createFloatingThreadBox = (
+    snippetIndex: number,
     anchor?: { x: number; y: number } | null,
     current?: FloatingThreadState | null
   ): FloatingThreadState => {
@@ -241,13 +220,18 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
       : { width: 420, height: 520 };
     const position = getFloatingThreadPosition({ anchor, box: size });
 
-    return clampFloatingBox({
+    const box = clampFloatingBox({
       box: {
         x: position.x,
         y: position.y,
         ...size,
       },
     });
+
+    return {
+      snippetIndex,
+      ...box,
+    };
   };
 
   const createSelectionMenuBox = (
@@ -336,39 +320,48 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
       const { box, mode } = floatingThreadDrag;
 
       if (mode === 'move') {
-        setFloatingThread(
-          clampFloatingBox({
-            box: {
-              ...box,
-              x: box.x + deltaX,
-              y: box.y + deltaY,
-            },
+        setFloatingThreads((threads) =>
+          openFloatingThread(threads, {
+            ...box,
+            ...clampFloatingBox({
+              box: {
+                ...box,
+                x: box.x + deltaX,
+                y: box.y + deltaY,
+              },
+            }),
           })
         );
         return;
       }
 
       if (mode === 'resize-left') {
-        setFloatingThread(
-          clampFloatingBox({
-            box: {
-              x: box.x + deltaX,
-              y: box.y,
-              width: box.width - deltaX,
-              height: box.height,
-            },
+        setFloatingThreads((threads) =>
+          openFloatingThread(threads, {
+            ...box,
+            ...clampFloatingBox({
+              box: {
+                x: box.x + deltaX,
+                y: box.y,
+                width: box.width - deltaX,
+                height: box.height,
+              },
+            }),
           })
         );
         return;
       }
 
-      setFloatingThread(
-        clampFloatingBox({
-          box: {
-            ...box,
-            width: box.width + deltaX,
-            height: box.height + deltaY,
-          },
+      setFloatingThreads((threads) =>
+        openFloatingThread(threads, {
+          ...box,
+          ...clampFloatingBox({
+            box: {
+              ...box,
+              width: box.width + deltaX,
+              height: box.height + deltaY,
+            },
+          }),
         })
       );
     };
@@ -440,7 +433,8 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
 
   const updateSelectionMenuFromDocument = (
     pointer?: { x: number; y: number },
-    preferredSelectable?: SelectableElement | null
+    preferredSelectable?: SelectableElement | null,
+    preferredPlacement?: SelectionMenuPlacement
   ) => {
     const selection = window.getSelection();
     const text = selection?.toString().trim() ?? '';
@@ -455,6 +449,40 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
     const anchorElement = getElementFromNode(anchorNode);
     const focusElement = getElementFromNode(focusNode);
     const commonElement = getElementFromNode(range.commonAncestorContainer);
+    const localSelectionOwners = [
+      anchorElement
+        ?.closest('[data-local-selection-owner]')
+        ?.getAttribute('data-local-selection-owner'),
+      focusElement
+        ?.closest('[data-local-selection-owner]')
+        ?.getAttribute('data-local-selection-owner'),
+      commonElement
+        ?.closest('[data-local-selection-owner]')
+        ?.getAttribute('data-local-selection-owner'),
+    ];
+
+    const selectionContainers = [
+      anchorElement
+        ?.closest('[data-selection-container]')
+        ?.getAttribute('data-selection-container'),
+      focusElement
+        ?.closest('[data-selection-container]')
+        ?.getAttribute('data-selection-container'),
+      commonElement
+        ?.closest('[data-selection-container]')
+        ?.getAttribute('data-selection-container'),
+    ];
+
+    if (
+      !preferredSelectable &&
+      shouldSkipGlobalSelectionMenuUpdate({
+        localOwners: localSelectionOwners,
+        selectionContainers,
+      })
+    ) {
+      return;
+    }
+
     const candidates = [
       preferredSelectable,
       anchorElement?.closest('[data-selection-scope="reading"]'),
@@ -510,10 +538,32 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
       height: clientRect.height,
       bottom: clientRect.bottom,
     }));
+    const selectionContainer = selectable.closest('[data-selection-container]');
+    const containerRect = selectionContainer?.getBoundingClientRect();
+    const openThreadElements = Object.values(floatingThreadRefs.current).filter(
+      (element): element is HTMLElement => element !== null
+    );
+    const isInsideCurrentThread =
+      containerRect && openThreadElements.includes(selectionContainer as HTMLElement);
+    const viewport =
+      isInsideCurrentThread
+        ? {
+            width: Math.max(320, containerRect.right - 12),
+            height: Math.max(260, containerRect.bottom - 12),
+          }
+        : undefined;
+    const menuSize = {
+      width: selectionMenu?.width ?? 352,
+      height: selectionMenu?.height ?? 252,
+    };
     const position = getSelectionMenuPosition({
       rect,
       rects,
       pointer,
+      viewport,
+      menu: menuSize,
+      preferredPlacement:
+        preferredPlacement ?? (isInsideCurrentThread ? 'above' : undefined),
     });
 
     setSelectionSource(selectable.dataset.selectionSource ?? 'text');
@@ -533,9 +583,10 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
         return;
       }
       if (
-        floatingThreadRef.current &&
         event.target instanceof Node &&
-        floatingThreadRef.current.contains(event.target)
+        Object.values(floatingThreadRefs.current).some((element) =>
+          element?.contains(event.target as Node)
+        )
       ) {
         return;
       }
@@ -558,6 +609,14 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
 
     const handlePointerUp = (event: MouseEvent) => {
       if (selectionMenuDrag || floatingThreadDrag) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest('[data-local-selection-owner="pdf-answer"]') ||
+        target?.closest('[data-selection-container="current-thread"]')
+      ) {
         return;
       }
 
@@ -650,11 +709,16 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
     );
   }, [material, selectedSnippets]);
 
-  const getAnnotatedAssistantContent = (content: string) =>
+  const getAnnotatedAssistantContent = (
+    content: string,
+    parentSnippetId?: string
+  ) =>
     buildAnnotatedContent(
-      content,
+      stripRenderedSnippetMarkup(content),
       selectedSnippets,
-      (snippet) => snippet.source === 'assistant_reply'
+      (snippet) => snippet.source === 'assistant_reply' &&
+        Boolean(parentSnippetId) &&
+        snippet.parentSnippetId === parentSnippetId
     );
 
   const activeSnippet =
@@ -674,25 +738,30 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
     setSelectionQuestion('');
     setSelectionMenuFallback(false);
     setSelectionTarget('material');
+    setSelectionParentSnippetId(null);
     window.getSelection()?.removeAllRanges();
   };
 
   const captureSelection = (
     event: ReactMouseEvent<HTMLDivElement, MouseEvent>,
     source: SelectionSource,
-    target: SelectionTarget = 'material'
+    target: SelectionTarget = 'material',
+    parentSnippetId?: string
   ) => {
     event.currentTarget.dataset.selectionSource = source;
     event.currentTarget.dataset.selectionTarget = target;
     updateSelectionMenuFromDocument(
       { x: event.clientX, y: event.clientY },
-      event.currentTarget as SelectableElement
+      event.currentTarget as SelectableElement,
+      target === 'assistant_reply' ? 'above' : undefined
     );
+    setSelectionParentSnippetId(parentSnippetId ?? null);
   };
 
   const ensureSnippetThread = (
     text: string,
-    source: SelectionSource
+    source: SelectionSource,
+    parentSnippetId?: string | null
   ): { nextSnippets: ReadingSnippet[]; index: number } | null => {
     if (!material) {
       return null;
@@ -702,10 +771,15 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
     if (!trimmed) {
       return null;
     }
+    const cleanedText = stripRenderedSnippetMarkup(trimmed);
 
     const existingIndex = selectedSnippets.findIndex(
       (snippet) =>
-        snippet.materialId === material.id && snippet.text.trim() === trimmed
+        snippet.materialId === material.id &&
+        snippet.text.trim() === cleanedText &&
+        (snippet.source ?? 'text') === source &&
+        (source !== 'assistant_reply' ||
+          (snippet.parentSnippetId ?? null) === (parentSnippetId ?? null))
     );
 
     if (existingIndex >= 0) {
@@ -717,8 +791,9 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
 
     const nextSnippetDraft = createSelectionSnippetDraft({
       materialId: material.id,
-      text: trimmed,
+      text: cleanedText,
       source,
+      parentSnippetId: parentSnippetId ?? undefined,
       ordinal: selectedSnippets.length + 1,
     });
 
@@ -738,7 +813,14 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
     anchor?: { x: number; y: number } | null
   ) => {
     setActiveSnippetIndex(index);
-    setFloatingThread((current) => createFloatingThreadBox(anchor, current));
+    setFloatingThreads((currentThreads) => {
+      const existingThread =
+        currentThreads.find((thread) => thread.snippetIndex === index) ?? null;
+      return openFloatingThread(
+        currentThreads,
+        createFloatingThreadBox(index, anchor, existingThread)
+      );
+    });
     setIsHistoryPanelOpen(false);
   };
 
@@ -783,7 +865,7 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
   };
 
   const addSelectionSnippet = (text: string, source: SelectionSource) => {
-    const ensured = ensureSnippetThread(text, source);
+    const ensured = ensureSnippetThread(text, source, selectionParentSnippetId);
     if (!ensured) {
       return;
     }
@@ -793,19 +875,29 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
     persistStudyState(ensured.nextSnippets, ensured.index);
   };
 
-  const openCurrentThreadFromSelection = () => {
-    setFloatingThread((current) =>
-      createFloatingThreadBox(
-        selectionMenu
-          ? {
-              x: selectionMenu.x,
-              y: selectionMenu.y,
-            }
-          : null,
-        current
-      )
-    );
+  const openThreadBox = (
+    threadIndex: number,
+    anchor?: { x: number; y: number } | null
+  ) => {
+    setFloatingThreads((currentThreads) => {
+      const existingThread =
+        currentThreads.find((thread) => thread.snippetIndex === threadIndex) ?? null;
+      return openFloatingThread(
+        currentThreads,
+        createFloatingThreadBox(
+          threadIndex,
+          anchor,
+          existingThread
+        )
+      );
+    });
     setIsHistoryPanelOpen(false);
+  };
+
+  const closeThreadBox = (threadIndex: number) => {
+    setFloatingThreads((currentThreads) =>
+      closeFloatingThread(currentThreads, threadIndex)
+    );
   };
 
   const removeSnippetAt = (index: number) => {
@@ -823,19 +915,10 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
 
     setSelectedSnippets(nextSnippets);
     setActiveSnippetIndex(nextActiveIndex);
-    if (nextActiveIndex === null) {
-      setFloatingThread(null);
-    }
+    setFloatingThreads((currentThreads) =>
+      reconcileFloatingThreadsAfterSnippetRemoval(currentThreads, index)
+    );
     persistStudyState(nextSnippets, nextActiveIndex);
-  };
-
-  const clearActiveThread = () => {
-    if (activeSnippetIndex === null) {
-      return;
-    }
-
-    removeSnippetAt(activeSnippetIndex);
-    setChatError(null);
   };
 
   const sendQuestion = async (
@@ -849,7 +932,7 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
       return {};
     }
 
-    const trimmedQuestion = nextQuestion.trim();
+    const trimmedQuestion = stripRenderedSnippetMarkup(nextQuestion.trim());
     if (!trimmedQuestion) {
       return {};
     }
@@ -862,7 +945,7 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
     setActiveSnippetIndex(threadIndex);
     setIsHistoryPanelOpen(false);
     if (options.openPanel !== false) {
-      setFloatingThread((current) => current ?? createFloatingThreadBox(null, current));
+      openThreadBox(threadIndex);
     }
 
     const previousMessages = thread.messages ?? [];
@@ -907,7 +990,6 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
 
     setIsSending(true);
     setChatError(null);
-    setQuestion('');
     setSelectedSnippets(nextSnippetsWithUser);
     persistStudyState(nextSnippetsWithUser, threadIndex);
 
@@ -921,8 +1003,10 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
       const data = (await response.json().catch(() => null)) as unknown;
       if (!response.ok || !isLearningChatResponse(data)) {
         throw new Error(
-          (hasDetailMessage(data) ? data.detail : undefined) ||
+          getReadableApiErrorMessage(
+            data,
             '学习提问暂时失败，请检查模型配置或稍后重试。'
+          )
         );
       }
 
@@ -946,9 +1030,6 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
       );
       setSelectedSnippets(snippetsSnapshot);
       persistStudyState(snippetsSnapshot, threadIndex);
-      if (options.restoreQuestionOnError !== false) {
-        setQuestion(trimmedQuestion);
-      }
       return { error: message };
     } finally {
       setIsSending(false);
@@ -956,13 +1037,17 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
   };
 
   const handleDirectAsk = async () => {
-    const selectedText = pendingSelection;
+    const selectedText = stripRenderedSnippetMarkup(pendingSelection);
     const prefix =
       selectionTarget === 'assistant_reply'
         ? '请基于这段模型回答继续解释、纠正或展开：'
         : '请围绕这段内容解释概念、指出重点，并告诉我下一步该怎么继续读：';
 
-    const ensured = ensureSnippetThread(selectedText, selectionSource);
+    const ensured = ensureSnippetThread(
+      selectedText,
+      selectionSource,
+      selectionParentSnippetId
+    );
     if (!ensured || !material) {
       return;
     }
@@ -974,7 +1059,15 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
     setSelectedSnippets(ensured.nextSnippets);
     setActiveSnippetIndex(ensured.index);
     persistStudyState(ensured.nextSnippets, ensured.index);
-    openCurrentThreadFromSelection();
+    openThreadBox(
+      ensured.index,
+      selectionMenu
+        ? {
+            x: selectionMenu.x,
+            y: selectionMenu.y,
+          }
+        : null
+    );
     closeSelectionMenu();
     await sendQuestion(
       prompt,
@@ -1019,13 +1112,10 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
         index,
         nextSnippets,
         buildReadingQuestionContext(nextSnippets, material.id),
-        { openPanel: false, restoreQuestionOnError: false }
+        { openPanel: true }
       );
     } else {
       setIsHistoryPanelOpen(false);
-      if (payload.question) {
-        setQuestion(payload.question);
-      }
     }
 
     return {};
@@ -1069,8 +1159,7 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
       const data = (await response.json().catch(() => null)) as unknown;
       if (!response.ok || !isPreAssessmentResponse(data)) {
         throw new Error(
-          (hasDetailMessage(data) ? data.detail : undefined) ||
-            '初步判断暂时失败，请稍后再试。'
+          getReadableApiErrorMessage(data, '初步判断暂时失败，请稍后再试。')
         );
       }
 
@@ -1097,6 +1186,131 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
 
   const canRenderOriginalFile =
     viewMode === 'original' && Boolean(sourceArtifact) && Boolean(sourceArtifactUrl);
+
+  const selectionMenuBox = selectionMenu ?? createSelectionMenuBox(getSelectionFallbackPosition());
+  const selectionMenuNode = pendingSelection ? (
+    <div
+      ref={selectionMenuRef}
+      className={`fixed flex flex-col rounded-2xl border bg-[var(--card-bg)] p-3 shadow-custom backdrop-blur-sm ${
+        selectionMenuFallback
+          ? 'border-[var(--accent-primary)]'
+          : 'border-[var(--border-color)]'
+      }`}
+      style={{
+        left: `${selectionMenuBox.x}px`,
+        top: `${selectionMenuBox.y}px`,
+        width: `${selectionMenuBox.width}px`,
+        height: `${selectionMenuBox.height}px`,
+        zIndex: getFloatingLayerZIndex('selection-menu'),
+      }}
+      role="dialog"
+      aria-label="选区提问框"
+    >
+      <button
+        type="button"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          setSelectionMenuDrag({
+            mode: 'resize-left',
+            startX: event.clientX,
+            startY: event.clientY,
+            box: selectionMenuBox,
+          });
+        }}
+        className="absolute left-0 top-10 h-[calc(100%-3.25rem)] w-2 -translate-x-1 cursor-ew-resize rounded-full bg-transparent transition hover:bg-[var(--accent-primary)]/60"
+        aria-label="拖动调整左侧宽度"
+        title="拖动调整左侧宽度"
+      />
+      <div
+        className="flex cursor-move items-start justify-between gap-3"
+        onPointerDown={(event) => {
+          if (event.button !== 0) {
+            return;
+          }
+          const target = event.target as HTMLElement | null;
+          if (target?.closest('button, textarea, input, a')) {
+            return;
+          }
+          event.preventDefault();
+          setSelectionMenuDrag({
+            mode: 'move',
+            startX: event.clientX,
+            startY: event.clientY,
+            box: selectionMenuBox,
+          });
+        }}
+      >
+        <div className="min-w-0">
+          {selectionMenuFallback ? (
+            <p className="mb-1 text-xs font-semibold text-[var(--accent-primary)]">
+              已选中文字，可以在这里提问
+            </p>
+          ) : null}
+          <p className="line-clamp-2 text-xs leading-5 text-[var(--muted)]">
+            {trimPreview(pendingSelection)}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={closeSelectionMenu}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border-color)] text-[0.65rem] text-[var(--muted)] transition hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
+          aria-label="关闭选区提问框"
+          title="关闭"
+        >
+          <FaTimes aria-hidden="true" />
+        </button>
+      </div>
+      <div className="mt-3 min-h-0 flex-1">
+        <textarea
+          value={selectionQuestion}
+          onChange={(event) => setSelectionQuestion(event.target.value)}
+          placeholder="在这里写你的问题。留空则默认解释这段内容。"
+          className="input-japanese h-full min-h-20 w-full resize-none rounded-2xl px-3 py-2 text-xs leading-5 text-[var(--foreground)]"
+        />
+      </div>
+      <div className="mt-3 flex shrink-0 flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => void handleDirectAsk()}
+          className="btn-japanese inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs"
+        >
+          直接提问
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            addSelectionSnippet(pendingSelection, selectionSource);
+            closeSelectionMenu();
+          }}
+          className="inline-flex items-center justify-center rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--foreground)] transition hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
+        >
+          先加入片段
+        </button>
+        <button
+          type="button"
+          onClick={closeSelectionMenu}
+          className="inline-flex items-center justify-center rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--accent-primary)]"
+        >
+          关闭
+        </button>
+      </div>
+      <button
+        type="button"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          setSelectionMenuDrag({
+            mode: 'resize',
+            startX: event.clientX,
+            startY: event.clientY,
+            box: selectionMenuBox,
+          });
+        }}
+        className="absolute bottom-2 right-2 h-5 w-5 cursor-nwse-resize rounded-md border-b-2 border-r-2 border-[var(--accent-primary)]/70"
+        aria-label="拖动调整选区提问框大小"
+        title="拖动调整选区提问框大小"
+      />
+    </div>
+  ) : null;
 
   if (!workspace) {
     return (
@@ -1130,6 +1344,10 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
   }
 
   return (
+    <>
+    {selectionMenuNode && typeof document !== 'undefined'
+      ? createPortal(selectionMenuNode, document.body)
+      : null}
     <div className="min-h-dvh paper-texture px-4 py-6 md:px-8 md:py-10">
       <div className="mx-auto max-w-[1600px] space-y-6">
         <header className="rounded-[28px] border border-[var(--border-color)] bg-[var(--card-bg)]/92 p-6 shadow-custom backdrop-blur-sm md:p-8">
@@ -1312,10 +1530,10 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
               </div>
             )}
 
-            {pendingSelection ? (
+            {false && pendingSelection ? (
               <div
                 ref={selectionMenuRef}
-                className={`fixed z-[60] flex flex-col rounded-2xl border bg-[var(--card-bg)] p-3 shadow-custom backdrop-blur-sm ${
+                className={`fixed z-[110] flex flex-col rounded-2xl border bg-[var(--card-bg)] p-3 shadow-custom backdrop-blur-sm ${
                   selectionMenuFallback
                     ? 'border-[var(--accent-primary)]'
                     : 'border-[var(--border-color)]'
@@ -1436,112 +1654,131 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
             ) : null}
           </section>
 
-          {floatingThread && activeSnippet ? (
-          <aside
-            ref={floatingThreadRef}
-            className="fixed z-50 flex flex-col rounded-[20px] border border-[var(--border-color)] bg-[var(--card-bg)]/96 p-4 shadow-custom backdrop-blur-sm"
-            style={{
-              left: `${floatingThread.x}px`,
-              top: `${floatingThread.y}px`,
-              width: `${floatingThread.width}px`,
-              height: `${floatingThread.height}px`,
-            }}
-            role="dialog"
-            aria-label="当前问答小框"
-          >
-            <button
-              type="button"
-              onPointerDown={(event) => {
-                event.preventDefault();
-                setFloatingThreadDrag({
-                  mode: 'resize-left',
-                  startX: event.clientX,
-                  startY: event.clientY,
-                  box: floatingThread,
-                });
-              }}
-              className="absolute left-0 top-12 h-[calc(100%-4rem)] w-2 -translate-x-1 cursor-ew-resize rounded-full bg-transparent transition hover:bg-[var(--accent-primary)]/60"
-              aria-label="拖动调整左侧宽度"
-              title="拖动调整左侧宽度"
-            />
-            <div
-              className="flex cursor-move items-center justify-between gap-3"
-              onPointerDown={(event) => {
-                if (event.button !== 0) {
-                  return;
-                }
-                const target = event.target as HTMLElement | null;
-                if (target?.closest('button, textarea, input, a, summary')) {
-                  return;
-                }
-                event.preventDefault();
-                setFloatingThreadDrag({
-                  mode: 'move',
-                  startX: event.clientX,
-                  startY: event.clientY,
-                  box: floatingThread,
-                });
-              }}
-            >
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--accent-primary)]">
-                当前问答小框
-              </p>
-              <div className="flex items-center gap-2">
-                <span className="hidden text-xs text-[var(--muted)] sm:inline">
-                  拖右下角调大小
-                </span>
+          {floatingThreads.map((floatingThread, openOrder) => {
+            const threadIndex = floatingThread.snippetIndex;
+            const threadSnippet = selectedSnippets[threadIndex];
+            if (!threadSnippet) {
+              return null;
+            }
+
+            const threadMessages = threadSnippet.messages ?? [];
+
+            return (
+              <aside
+                key={`${threadSnippet.id ?? threadSnippet.anchorLabel}-${threadIndex}`}
+                ref={(element) => {
+                  if (element) {
+                    floatingThreadRefs.current[threadIndex] = element;
+                  } else {
+                    delete floatingThreadRefs.current[threadIndex];
+                  }
+                }}
+                data-selection-container="current-thread"
+                className="fixed flex flex-col rounded-[20px] border border-[var(--border-color)] bg-[var(--card-bg)]/96 p-4 shadow-custom backdrop-blur-sm"
+                style={{
+                  left: `${floatingThread.x}px`,
+                  top: `${floatingThread.y}px`,
+                  width: `${floatingThread.width}px`,
+                  height: `${floatingThread.height}px`,
+                  zIndex: getFloatingLayerZIndex('current-thread') + openOrder,
+                }}
+                role="dialog"
+                aria-label="当前问答小框"
+              >
                 <button
                   type="button"
-                  onClick={() => setFloatingThread(null)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border-color)] text-xs text-[var(--foreground)] transition hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
-                  aria-label="关闭当前问答"
-                  title="关闭"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    setFloatingThreadDrag({
+                      mode: 'resize-left',
+                      startX: event.clientX,
+                      startY: event.clientY,
+                      box: floatingThread,
+                    });
+                  }}
+                  className="absolute left-0 top-12 h-[calc(100%-4rem)] w-2 -translate-x-1 cursor-ew-resize rounded-full bg-transparent transition hover:bg-[var(--accent-primary)]/60"
+                  aria-label="拖动调整左侧宽度"
+                  title="拖动调整左侧宽度"
+                />
+                <div
+                  className="flex cursor-move items-center justify-between gap-3"
+                  onPointerDown={(event) => {
+                    if (event.button !== 0) {
+                      return;
+                    }
+                    const target = event.target as HTMLElement | null;
+                    if (target?.closest('button, textarea, input, a, summary')) {
+                      return;
+                    }
+                    event.preventDefault();
+                    setActiveSnippetIndex(threadIndex);
+                    setFloatingThreadDrag({
+                      mode: 'move',
+                      startX: event.clientX,
+                      startY: event.clientY,
+                      box: floatingThread,
+                    });
+                  }}
                 >
-                  <FaTimes aria-hidden="true" />
-                </button>
-              </div>
-            </div>
-
-            <section className="mt-3 flex min-h-0 flex-1 flex-col">
-              <div className="flex items-start justify-between gap-3">
-                <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--accent-primary)]">
-                    边读边问
+                    当前问答小框
                   </p>
-                  <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">
-                    片段问答
-                  </h2>
+                  <div className="flex items-center gap-2">
+                    <span className="hidden text-xs text-[var(--muted)] sm:inline">
+                      拖右下角调大小
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => closeThreadBox(threadIndex)}
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border-color)] text-xs text-[var(--foreground)] transition hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
+                      aria-label="关闭当前问答"
+                      title="关闭"
+                    >
+                      <FaTimes aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
-                {activeSnippet ? (
-                  <button
-                    type="button"
-                    onClick={clearActiveThread}
-                    className="rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--foreground)] transition hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
-                  >
-                    删除对话
-                  </button>
-                ) : null}
-              </div>
 
-              {activeSnippet ? (
-                <>
+                <section className="mt-3 flex min-h-0 flex-1 flex-col">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--accent-primary)]">
+                        边读边问
+                      </p>
+                      <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">
+                        片段问答
+                      </h2>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveSnippetIndex(threadIndex);
+                        removeSnippetAt(threadIndex);
+                        setChatError(null);
+                      }}
+                      className="rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--foreground)] transition hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
+                    >
+                      删除对话
+                    </button>
+                  </div>
+
                   <details className="mt-4 shrink-0 rounded-2xl border border-[var(--border-color)] bg-[var(--background)]/68 p-3">
                     <summary className="cursor-pointer text-xs font-semibold text-[var(--accent-primary)]">
-                      {activeSnippet.anchorLabel}
+                      {threadSnippet.anchorLabel}
                     </summary>
                     <p className="mt-2 text-sm leading-6 text-[var(--foreground)]">
-                      {activeSnippet.text}
+                      {threadSnippet.text}
                     </p>
-                    {activeSnippet.imageDataUrl ? (
+                    {threadSnippet.imageDataUrl ? (
                       <img
-                        src={activeSnippet.imageDataUrl}
-                        alt={activeSnippet.anchorLabel}
+                        src={threadSnippet.imageDataUrl}
+                        alt={threadSnippet.anchorLabel}
                         className="mt-3 max-h-44 w-full rounded-2xl border border-[var(--border-color)] bg-white object-contain"
                       />
                     ) : null}
                     <button
                       type="button"
-                      onClick={() => removeSnippetAt(activeSnippetIndex as number)}
+                      onClick={() => removeSnippetAt(threadIndex)}
                       className="mt-3 text-xs text-[var(--muted)] transition hover:text-[var(--accent-primary)]"
                     >
                       删除这个锚点
@@ -1549,8 +1786,8 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
                   </details>
 
                   <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-auto pr-1">
-                    {activeMessages.length > 0 ? (
-                      activeMessages.map((message, index) => (
+                    {threadMessages.length > 0 ? (
+                      threadMessages.map((message, index) => (
                         <div
                           key={`${message.role}-${index}`}
                           className={`rounded-2xl border p-4 ${
@@ -1567,9 +1804,15 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
                               data-selection-scope="reading"
                               data-selection-source="assistant_reply"
                               data-selection-target="assistant_reply"
-                              onMouseUp={(event) =>
-                                captureSelection(event, 'assistant_reply', 'assistant_reply')
-                              }
+                              onMouseUp={(event) => {
+                                setActiveSnippetIndex(threadIndex);
+                                captureSelection(
+                                  event,
+                                  'assistant_reply',
+                                  'assistant_reply',
+                                  threadSnippet.id
+                                );
+                              }}
                               onClick={(event) => handleAnnotatedSnippetClick(event.target)}
                               onContextMenu={(event) => {
                                 const selection = window.getSelection();
@@ -1578,10 +1821,21 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
                                   return;
                                 }
                                 event.preventDefault();
-                                captureSelection(event, 'assistant_reply', 'assistant_reply');
+                                setActiveSnippetIndex(threadIndex);
+                                captureSelection(
+                                  event,
+                                  'assistant_reply',
+                                  'assistant_reply',
+                                  threadSnippet.id
+                                );
                               }}
                             >
-                              <Markdown content={getAnnotatedAssistantContent(message.content)} />
+                              <Markdown
+                                content={getAnnotatedAssistantContent(
+                                  message.content,
+                                  threadSnippet.id
+                                )}
+                              />
                             </div>
                           ) : (
                             <p className="text-sm leading-6 text-[var(--foreground)]">
@@ -1592,58 +1846,35 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
                       ))
                     ) : (
                       <p className="text-sm leading-6 text-[var(--muted)]">
-                        这个片段还没有问答。你可以在这里围绕它继续问。
+                        这个片段还没有问答。选中原文或回答里的文字后，可以在旁边的小框直接提问。
                       </p>
                     )}
                   </div>
 
-                  {chatError ? (
+                  {chatError && activeSnippetIndex === threadIndex ? (
                     <div className="mt-4 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-700 dark:text-rose-300">
                       {chatError}
                     </div>
                   ) : null}
-
-                  <div className="mt-4 shrink-0 space-y-3">
-                    <textarea
-                      value={question}
-                      onChange={(event) => setQuestion(event.target.value)}
-                      rows={4}
-                      placeholder="围绕这个片段继续追问。"
-                      className="input-japanese w-full rounded-[24px] px-4 py-3 text-sm leading-6 text-[var(--foreground)]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void sendQuestion(question)}
-                      disabled={isSending}
-                      className="btn-japanese inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isSending ? '正在提问...' : '围绕片段提问'}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <p className="mt-4 text-sm leading-6 text-[var(--muted)]">
-                  选中文字提问，或点击已有锚点，这里只显示对应片段的问答。
-                </p>
-              )}
-            </section>
-            <button
-              type="button"
-              onPointerDown={(event) => {
-                event.preventDefault();
-                setFloatingThreadDrag({
-                  mode: 'resize',
-                  startX: event.clientX,
-                  startY: event.clientY,
-                  box: floatingThread,
-                });
-              }}
-              className="absolute bottom-2 right-2 h-5 w-5 cursor-nwse-resize rounded-md border-b-2 border-r-2 border-[var(--accent-primary)]/70"
-              aria-label="拖动调整问答框大小"
-              title="拖动调整问答框大小"
-            />
-          </aside>
-          ) : null}
+                </section>
+                <button
+                  type="button"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    setFloatingThreadDrag({
+                      mode: 'resize',
+                      startX: event.clientX,
+                      startY: event.clientY,
+                      box: floatingThread,
+                    });
+                  }}
+                  className="absolute bottom-2 right-2 h-5 w-5 cursor-nwse-resize rounded-md border-b-2 border-r-2 border-[var(--accent-primary)]/70"
+                  aria-label="拖动调整问答框大小"
+                  title="拖动调整问答框大小"
+                />
+              </aside>
+            );
+          })}
         </div>
       </div>
 
@@ -1652,7 +1883,7 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
           className="fixed inset-0 z-50 flex justify-end bg-black/28"
           role="dialog"
           aria-modal="true"
-          aria-label="全部提问历史"
+          aria-label="PDF 截图提问历史"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
               setIsHistoryPanelOpen(false);
@@ -1666,10 +1897,10 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
                   历史
                 </p>
                 <h2 className="mt-2 text-2xl font-semibold text-[var(--foreground)]">
-                  全部提问历史
+                  PDF 截图提问历史
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                  点一条记录，只恢复对应片段的小问答框。
+                  这里只保留原始 PDF 框选提问。点一条记录，只恢复对应片段的小问答框。
                 </p>
               </div>
               <button
@@ -1737,7 +1968,7 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
                 })
               ) : (
                 <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--background)]/68 p-5 text-sm leading-6 text-[var(--muted)]">
-                  还没有历史记录。你从 PDF 截图或文本选区提问后，会出现在这里。
+                  还没有 PDF 截图提问历史。原文框选提问后，会出现在这里。
                 </div>
               )}
             </div>
@@ -1745,5 +1976,6 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
         </div>
       ) : null}
     </div>
+    </>
   );
 }

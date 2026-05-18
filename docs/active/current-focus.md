@@ -15,6 +15,7 @@
 7. 为 memory 增加“可见校对层”，避免内部记忆完全不可见或直接污染前端。
 8. 重新审视 `pre-assessment` 当前形态是否仍然过像“专家工具入口”，并继续把它降回主路径里的一个初判节点。
 9. 清理 `docs/`，让任何 agent 进来都能立刻找到当前真相，而不是陷进历史文档。
+10. 建立“学习痕迹记录”作为稳定画像之前的原始证据层，记录真实协作中暴露的能力结构、表达方式、调试习惯和产品启示。
 
 ## 当前状态
 
@@ -23,6 +24,7 @@
 - `pre-assessment` 的 spec 已经从“分类器思路”改成“学习决策助手思路”，但现在进一步确认：它本身仍然不足以承担完整主入口。
 - 当前新增结论：现在不适合继续直接补功能，必须先完成一次正式的 v2 对齐。
 - 当前新增主 spec：`docs/specs/learning-v2-alignment.md`
+- 新增上下文迁移 spec：`docs/specs/memory-and-context-pipeline.md`，用于把稳定画像、学习痕迹、当前任务状态和协作规则迁移到产品内 API 调用。
 - 新增对齐结论：至少要分成三种模式，而不是继续假装一个流程能吃下所有学习场景。
   - 复习提分模式
   - 理解探索模式
@@ -48,6 +50,8 @@
   - 后续阅读器必须考虑截图提问或区域提问
 - 当前阶段由 Codex 负责对齐、实现、自审和文档维护。
 - Claude 不再是这一阶段的默认执行路径。
+- 新增原始理解资料入口：`docs/active/learning-traces.md`。这里记录协作和学习过程中的观察，不直接等同于用户画像；多次验证后才进入稳定画像或长期协作指南。
+- `docs/active/handoff.md` 已清理为当前合同；详细历史流水归档到 `docs/archive/handoffs/`。
 - 新暴露的问题：当前 UI、输入方式和工作流仍更像“需要用户自我组织信息的专家工具”，还不像“能先帮用户进入学习状态的助手”。
 - 新暴露的问题：如果继续默认“说一点就实现一点”，会再次出现“实现路径和用户真实目标没有彻底对齐”的假进展。
 
@@ -70,8 +74,9 @@
 1. 资料对象模型定稿
 2. 视觉资料双通道定稿
 3. 记忆双层机制定稿
-4. 明确阅读页的多选区提问交互与资料卡背景开关如何落 UI
-5. 再决定是阅读器优先还是复习提分模式优先
+4. API 上下文构建器设计：稳定画像、学习痕迹、当前任务状态如何进入模型调用
+5. 明确阅读页的多选区提问交互与资料卡背景开关如何落 UI
+6. 再决定是阅读器优先还是复习提分模式优先
 ## 2026-05-14 Codex Update
 
 - v2 minimal reading loop is now wired end to end:
@@ -111,3 +116,28 @@
 - Verification blockers:
   - Node test runner still fails in this sandbox with `spawn EPERM`
   - Python unit test still requires the backend dependency environment with `adalflow`
+
+## 2026-05-18 Codex Update
+
+- Fixed a Markdown rendering bug exposed in the learning Q&A box:
+  - language-free multiline fenced blocks now render as neutral preformatted blocks instead of pink inline code
+  - single-line backticked formulas can still render through KaTeX when they look like math
+  - the learning-chat prompt now asks the model to wrap math with `$...$` or `$$...$$` instead of emitting bare formula text
+- Fixed the current Q&A box continuity model:
+  - selection question popups remain temporary connectors and close after submitting
+  - each answered selection opens its own Q&A box
+  - previously opened Q&A boxes stay visible until the user closes or deletes that specific box
+  - deleting a snippet reconciles open boxes without closing unrelated ones
+- Fixed follow-up anchor/rendering regressions in the Q&A boxes:
+  - assistant-answer anchors now belong to the parent Q&A box where the text was selected
+  - repeated words in unrelated Q&A boxes no longer get marked just because they match a previous selection
+  - anchor injection skips LaTeX and inline-code regions, preventing leaked `<mark ...>` text inside formulas
+  - already stored assistant text is cleaned at render/send time if old `<mark>` markup leaked into it
+  - selected snippet context sent to `/api/learning-chat` is capped to the backend limit of 12 items
+  - inline math detection now covers `β` and `ℓ`, reducing pink inline-code rendering for formulas like `L(β)` and `ℓ(β)`
+- Verification this turn:
+  - `node --experimental-strip-types tests\node\learning-workspace.test.ts` (50 passed)
+  - `node_modules\.bin\tsc.cmd --noEmit`
+  - `git diff --check` (only existing CRLF conversion warnings)
+- Verification blocker:
+  - `python -m pytest tests\unit\test_learning_chat_service.py` still cannot collect because the active Python environment lacks `adalflow`

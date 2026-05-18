@@ -5,7 +5,11 @@ import rehypeRaw from 'rehype-raw';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { tomorrow } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import Mermaid from './Mermaid';
-import { renderMarkdownMath } from '@/lib/markdown-math';
+import { getMarkdownCodeRenderMode } from '@/lib/markdown-code';
+import {
+  renderInlineKatex,
+  renderMarkdownMath,
+} from '@/lib/markdown-math';
 
 interface MarkdownProps {
   content: string;
@@ -117,6 +121,23 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
     sp({ children, ...props }: { children?: React.ReactNode }) {
       return <span {...props}>{children}</span>;
     },
+    mark({
+      children,
+      className,
+      ...props
+    }: {
+      children?: React.ReactNode;
+      className?: string;
+    }) {
+      return (
+        <mark
+          {...props}
+          className={`cursor-pointer rounded-[0.28rem] bg-[var(--accent-primary)]/18 px-0.5 text-inherit underline decoration-[var(--accent-primary)] decoration-2 underline-offset-[0.22em] box-decoration-clone ${className ?? ''}`}
+        >
+          {children}
+        </mark>
+      );
+    },
     code(props: {
       inline?: boolean;
       className?: string;
@@ -125,11 +146,15 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
       [key: string]: any; // Using any here as it's required for ReactMarkdown components
     }) {
       const { inline, className, children, ...otherProps } = props;
-      const match = /language-(\w+)/.exec(className || '');
       const codeContent = children ? String(children).replace(/\n$/, '') : '';
+      const renderMode = getMarkdownCodeRenderMode({
+        inline,
+        className,
+        content: codeContent,
+      });
 
       // Handle Mermaid diagrams
-      if (!inline && match && match[1] === 'mermaid') {
+      if (renderMode.type === 'mermaid') {
         return (
           <div className="my-8 bg-gray-50 dark:bg-gray-800 rounded-md overflow-hidden shadow-sm">
             <Mermaid
@@ -142,11 +167,11 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
       }
 
       // Handle code blocks
-      if (!inline && match) {
+      if (renderMode.type === 'syntax-block') {
         return (
           <div className="my-6 rounded-md overflow-hidden text-sm shadow-sm">
             <div className="bg-gray-800 text-gray-200 px-5 py-2 text-sm flex justify-between items-center">
-              <span>{match[1]}</span>
+              <span>{renderMode.language}</span>
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(codeContent);
@@ -171,7 +196,7 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
               </button>
             </div>
             <SyntaxHighlighter
-              language={match[1]}
+              language={renderMode.language}
               style={tomorrow}
               className="!text-sm"
               customStyle={{ margin: 0, borderRadius: '0 0 0.375rem 0.375rem', padding: '1rem' }}
@@ -186,7 +211,27 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
         );
       }
 
+      if (renderMode.type === 'plain-block') {
+        return (
+          <pre
+            className="my-4 max-w-full overflow-x-auto whitespace-pre-wrap rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-sm leading-relaxed text-gray-800 dark:border-gray-700 dark:bg-gray-900/70 dark:text-gray-100"
+            {...otherProps}
+          >
+            <code className="font-mono text-sm">{codeContent}</code>
+          </pre>
+        );
+      }
+
       // Handle inline code
+      if (renderMode.type === 'inline-math') {
+        return (
+          <span
+            className="du-math du-math-inline"
+            dangerouslySetInnerHTML={{ __html: renderInlineKatex(codeContent) }}
+          />
+        );
+      }
+
       return (
         <code
           className={`${className} font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-pink-500 dark:text-pink-400 text-sm`}

@@ -378,8 +378,10 @@ function PdfPage({
           return null;
         }
 
-        const anchorLeft = (snippet.region.x + snippet.region.width) * scaleX;
+        const anchorLeft = snippet.region.x * scaleX;
         const anchorTop = snippet.region.y * scaleY;
+        const anchorWidth = Math.max(24, snippet.region.width * scaleX);
+        const anchorHeight = Math.max(18, snippet.region.height * scaleY);
 
         return (
           <button
@@ -389,15 +391,22 @@ function PdfPage({
               event.stopPropagation();
               onOpenSnippet(index);
             }}
-            className="absolute z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-[var(--accent-primary)] text-xs font-semibold text-white shadow-custom transition hover:scale-105"
+            className="group absolute z-10 rounded-[6px] bg-[var(--accent-primary)]/10 outline-none transition hover:bg-[var(--accent-primary)]/16 focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)]"
             style={{
-              left: `${Math.max(8, anchorLeft - 16)}px`,
-              top: `${Math.max(8, anchorTop - 16)}px`,
+              left: `${anchorLeft}px`,
+              top: `${anchorTop}px`,
+              width: `${anchorWidth}px`,
+              height: `${anchorHeight}px`,
             }}
             aria-label={`打开${snippet.anchorLabel}的问答小框`}
             title={snippet.anchorLabel}
           >
-            {index + 1}
+            <span className="pointer-events-none absolute inset-x-0 bottom-0 border-b-2 border-[var(--accent-primary)]" />
+            <span className="pointer-events-none absolute bottom-0 left-0 h-4 border-l-2 border-[var(--accent-primary)]" />
+            <span className="pointer-events-none absolute bottom-0 right-0 h-4 border-r-2 border-[var(--accent-primary)]" />
+            <span className="pointer-events-none absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full border border-white bg-[var(--accent-primary)] px-1 text-[10px] font-semibold leading-none text-white opacity-0 shadow-custom transition group-hover:opacity-100 group-focus-visible:opacity-100">
+              {index + 1}
+            </span>
           </button>
         );
       })}
@@ -804,7 +813,7 @@ export default function PdfReadingSurface({
       setAnswerSelection('');
       setAnswerFollowUpQuestion('');
       setAnswerSelectionMenu(null);
-      setIsCaptureContextExpanded(false);
+      setIsCaptureContextExpanded(true);
       setCaptureFollowUps([]);
       setCapturePageNumber(null);
 
@@ -812,8 +821,10 @@ export default function PdfReadingSurface({
         const result = await onScreenshotQuestion(payload);
         if (result?.error) {
           setCaptureError(result.error);
-        } else if (result?.answer) {
-          setCaptureAnswer(result.answer);
+        } else {
+          setPendingCapture(null);
+          setCaptureQuestion('');
+          setIsCaptureContextExpanded(true);
         }
       } catch (error) {
         setCaptureError(
@@ -838,32 +849,8 @@ export default function PdfReadingSurface({
     setCapturePageNumber(null);
   };
 
-  const openSnippetCaptureBox = (snippet: ReadingSnippet, index: number) => {
-    if (!snippet.imageDataUrl || !snippet.pageNumber || !snippet.region) {
-      onOpenSnippet(index);
-      return;
-    }
-
-    setPendingCapture({
-      pageNumber: snippet.pageNumber,
-      region: snippet.region,
-      imageDataUrl: snippet.imageDataUrl,
-      snippetIndex: index,
-    });
-    setCaptureQuestion(
-      snippet.messages?.find((message) => message.role === 'user')?.content ?? ''
-    );
-    setCaptureAnswer(
-      snippet.messages?.slice().reverse().find((message) => message.role === 'assistant')
-        ?.content ?? ''
-    );
-    setCaptureError('');
-    setAnswerSelection('');
-    setAnswerFollowUpQuestion('');
-    setAnswerSelectionMenu(null);
-    setIsCaptureContextExpanded(false);
-    setCaptureFollowUps([]);
-    setCapturePageNumber(null);
+  const openSnippetCaptureBox = (_snippet: ReadingSnippet, index: number) => {
+    onOpenSnippet(index);
   };
 
   const captureAnswerSelection = () => {
@@ -1018,6 +1005,7 @@ export default function PdfReadingSurface({
       .map((snippet, index) => ({ snippet, index }))
       .filter(
         ({ snippet }) =>
+          snippet.source === 'pdf_screenshot' &&
           snippet.pageNumber === pageNumber &&
           snippet.region &&
           (snippet.messages ?? []).length > 0
@@ -1200,7 +1188,7 @@ export default function PdfReadingSurface({
                 placeholder="例如：为什么这里可以这样变形？这张图和上面的公式是什么关系？"
                 className={`${isCaptureContextExpanded ? 'block' : 'hidden'} input-japanese mt-3 w-full rounded-2xl px-3 py-2 text-sm leading-6 text-[var(--foreground)]`}
               />
-              <div className={`${isCaptureContextExpanded || !captureAnswer ? 'flex' : 'hidden'} mt-3 flex-wrap gap-2`}>
+              <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => void submitCapture('direct')}
@@ -1239,7 +1227,7 @@ export default function PdfReadingSurface({
                   {captureError}
                 </div>
               ) : null}
-              {isCaptureSending && !captureAnswer ? (
+              {isCaptureSending ? (
                 <div className="mt-3 rounded-2xl border border-[var(--border-color)] bg-[var(--background)]/72 px-3 py-3 text-sm text-[var(--muted)]">
                   回答中...
                 </div>

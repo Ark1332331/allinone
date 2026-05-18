@@ -13,6 +13,33 @@ function renderKatex(source: string, displayMode: boolean) {
   });
 }
 
+export function renderInlineKatex(source: string) {
+  return renderKatex(source, false);
+}
+
+export function looksLikeInlineMathCode(source: string) {
+  const value = source.trim();
+  if (!value || value.length > 180 || /\n/.test(value)) {
+    return false;
+  }
+
+  const hasMathSymbol = /[=∑Σπθβλμσℓ∞≤≥≠≈∈∂√^_]|\\(sum|frac|theta|beta|lambda|mu|sigma|ell|log|sin|cos|arg|max|min|prod|cdot)\b/.test(
+    value
+  );
+  if (!hasMathSymbol) {
+    return false;
+  }
+
+  const hasProgrammingShape = /\b(const|let|var|function|return|import|from|npm|yarn|python|git)\b|=>|===|!==/.test(
+    value
+  );
+  if (hasProgrammingShape) {
+    return false;
+  }
+
+  return /[A-Za-z0-9θβλμσπℓ][\w{}()[\]\\|;:,+\-*/^_\s=∑Σπθβλμσℓ∞≤≥≠≈∈∂√]+/.test(value);
+}
+
 export function renderMarkdownMath(content: string) {
   const renderedMath: string[] = [];
   const stash = (html: string) => {
