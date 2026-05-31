@@ -643,7 +643,7 @@ export default function PdfReadingSurface({
     setPdfDocument(null);
     setLoadError(null);
 
-    const task = getDocument(fileUrl);
+    const task = getDocument({ url: fileUrl, password: '' });
     void task.promise
       .then((loadedPdf) => {
         if (!cancelled) {
@@ -1082,50 +1082,15 @@ export default function PdfReadingSurface({
       {pendingCapture ? (
         <div
           ref={captureBoxRef}
-          className="fixed z-40 flex flex-col rounded-[24px] border border-[var(--accent-primary)]/28 bg-[var(--card-bg)]/96 p-4 shadow-custom backdrop-blur-sm"
+          className="fixed z-40 w-96 rounded-2xl border border-[var(--accent-primary)]/28 bg-[var(--card-bg)]/96 p-4 shadow-custom backdrop-blur-sm"
           style={{
-            left: `${captureBox.x}px`,
-            top: `${captureBox.y}px`,
-            width: `${captureBox.width}px`,
-            height: `${captureBox.height}px`,
+            right: '16px',
+            top: '96px',
           }}
         >
-          <button
-            type="button"
-            onPointerDown={(event) => {
-              event.preventDefault();
-              setCaptureBoxDrag({
-                mode: 'resize-left',
-                startX: event.clientX,
-                startY: event.clientY,
-                box: captureBox,
-              });
-            }}
-            className="absolute left-0 top-12 h-[calc(100%-4rem)] w-2 -translate-x-1 cursor-ew-resize rounded-full bg-transparent transition hover:bg-[var(--accent-primary)]/60"
-            aria-label="拖动调整左侧宽度"
-            title="拖动调整左侧宽度"
-          />
-          <div
-            className="mb-3 flex cursor-move items-start justify-between gap-3"
-            onPointerDown={(event) => {
-              if (event.button !== 0) {
-                return;
-              }
-              const target = event.target as HTMLElement | null;
-              if (target?.closest('button, textarea, input, a')) {
-                return;
-              }
-              event.preventDefault();
-              setCaptureBoxDrag({
-                mode: 'move',
-                startX: event.clientX,
-                startY: event.clientY,
-                box: captureBox,
-              });
-            }}
-          >
+          <div className="mb-3 flex items-start justify-between gap-3">
             <p className="text-sm font-semibold text-[var(--foreground)]">
-              第 {pendingCapture.pageNumber} 页截图问答
+              第 {pendingCapture.pageNumber} 页截图提问
             </p>
             <button
               type="button"
@@ -1139,260 +1104,86 @@ export default function PdfReadingSurface({
                 setAnswerSelectionMenu(null);
                 setCaptureFollowUps([]);
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border-color)] text-xs text-[var(--muted)] transition hover:text-[var(--accent-primary)]"
-              aria-label="关闭截图问答框"
+              className="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--border-color)] text-xs text-[var(--muted)] transition hover:text-[var(--accent-primary)]"
+              aria-label="关闭"
             >
               ×
             </button>
           </div>
-          <div
-            className={`grid min-h-0 flex-1 gap-3 ${isCaptureContextExpanded ? '' : 'grid-cols-1'}`}
-            style={
-              isCaptureContextExpanded
-                ? { gridTemplateColumns: `${contextPaneWidth}px 0.5rem minmax(0,1fr)` }
-                : undefined
-            }
-          >
-            <img
-              src={pendingCapture.imageDataUrl}
-              alt={`第 ${pendingCapture.pageNumber} 页截图`}
-              className={`${isCaptureContextExpanded ? 'block' : 'hidden'} max-h-44 w-full rounded-2xl border border-[var(--border-color)] bg-white object-contain`}
-            />
-            {isCaptureContextExpanded ? (
-              <button
-                type="button"
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  setIsResizingContextPane(true);
-                }}
-                className="h-full min-h-40 cursor-col-resize rounded-full bg-[var(--border-color)] transition hover:bg-[var(--accent-primary)]"
-                aria-label="拖动调整左侧截图宽度"
-                title="拖动调整左侧截图宽度"
-              />
-            ) : null}
-            <div className="flex min-h-0 flex-col">
-              <button
-                type="button"
-                onClick={() => setIsCaptureContextExpanded((value) => !value)}
-                className="rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--accent-primary)]"
-              >
-                {isCaptureContextExpanded ? '收起截图和问题' : '展开截图和问题'}
-              </button>
-              <p className={`${isCaptureContextExpanded ? 'block' : 'hidden'} mt-2 text-xs leading-5 text-[var(--muted)]`}>
-                先写你真正想问的问题。也可以先存成片段，稍后再围绕它连续追问。
-              </p>
-              <textarea
-                value={captureQuestion}
-                onChange={(event) => setCaptureQuestion(event.target.value)}
-                rows={3}
-                placeholder="例如：为什么这里可以这样变形？这张图和上面的公式是什么关系？"
-                className={`${isCaptureContextExpanded ? 'block' : 'hidden'} input-japanese mt-3 w-full rounded-2xl px-3 py-2 text-sm leading-6 text-[var(--foreground)]`}
-              />
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void submitCapture('direct')}
-                  disabled={isCaptureSending}
-                  className="btn-japanese inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isCaptureSending ? '正在回答...' : '直接截图提问'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void submitCapture('stage')}
-                  disabled={isCaptureSending}
-                  className="inline-flex items-center justify-center rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--foreground)] transition hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  建立截图片段
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPendingCapture(null);
-                    setCaptureQuestion('');
-                    setCaptureAnswer('');
-                    setCaptureError('');
-                    setAnswerSelection('');
-                    setAnswerFollowUpQuestion('');
-                    setAnswerSelectionMenu(null);
-                    setCaptureFollowUps([]);
-                  }}
-                  className="inline-flex items-center justify-center rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--accent-primary)]"
-                >
-                  取消
-                </button>
-              </div>
-              {captureError ? (
-                <div className="mt-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm leading-6 text-rose-700 dark:text-rose-300">
-                  {captureError}
-                </div>
-              ) : null}
-              {isCaptureSending ? (
-                <div className="mt-3 rounded-2xl border border-[var(--border-color)] bg-[var(--background)]/72 px-3 py-3 text-sm text-[var(--muted)]">
-                  回答中...
-                </div>
-              ) : null}
-              {captureAnswer ? (
-                <>
-                  <div
-                    ref={answerRef}
-                    onMouseUp={() => {
-                      window.setTimeout(captureAnswerSelection, 0);
-                    }}
-                    onContextMenu={(event) => {
-                      const selection = window.getSelection();
-                      const text = selection?.toString().trim() ?? '';
-                      if (!text) {
-                        return;
-                      }
-                      event.preventDefault();
-                      captureAnswerSelection();
-                    }}
-                    onClick={(event) => {
-                      const target = event.target as HTMLElement | null;
-                      const mark = target?.closest('[data-capture-follow-up-id]');
-                      const id = mark?.getAttribute('data-capture-follow-up-id');
-                      if (!id) {
-                        return;
-                      }
-                      setCaptureFollowUps((current) =>
-                        current.map((followUp) =>
-                          followUp.id === id ? { ...followUp, isOpen: true } : followUp
-                        )
-                      );
-                    }}
-                    className="mt-3 min-h-0 flex-1 overflow-auto rounded-2xl border border-[var(--border-color)] bg-[var(--background)]/72 px-3 py-2 text-sm leading-6 text-[var(--foreground)]"
-                  >
-                    <Markdown content={annotatedCaptureAnswer} />
-                  </div>
-                  {answerSelection && answerSelectionMenu ? (
-                    <div
-                      className="fixed z-30 flex flex-col rounded-2xl border border-[var(--accent-primary)]/25 bg-[var(--card-bg)]/96 p-3 shadow-custom backdrop-blur-sm"
-                      style={{
-                        left: `${answerSelectionMenu.x}px`,
-                        top: `${answerSelectionMenu.y}px`,
-                        width: `${answerSelectionMenu.width}px`,
-                        height: `${answerSelectionMenu.height}px`,
-                      }}
-                    >
-                      <button
-                        type="button"
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          setAnswerSelectionMenuDrag({
-                            mode: 'resize-left',
-                            startX: event.clientX,
-                            startY: event.clientY,
-                            box: answerSelectionMenu,
-                          });
-                        }}
-                        className="absolute left-0 top-10 h-[calc(100%-3.25rem)] w-2 -translate-x-1 cursor-ew-resize rounded-full bg-transparent transition hover:bg-[var(--accent-primary)]/60"
-                        aria-label="拖动调整左侧宽度"
-                        title="拖动调整左侧宽度"
-                      />
-                      <div
-                        className="flex cursor-move items-start justify-between gap-3"
-                        onPointerDown={(event) => {
-                          if (event.button !== 0) {
-                            return;
-                          }
-                          const target = event.target as HTMLElement | null;
-                          if (target?.closest('button, textarea, input, a')) {
-                            return;
-                          }
-                          event.preventDefault();
-                          setAnswerSelectionMenuDrag({
-                            mode: 'move',
-                            startX: event.clientX,
-                            startY: event.clientY,
-                            box: answerSelectionMenu,
-                          });
-                        }}
-                      >
-                        <p className="line-clamp-2 min-w-0 text-xs leading-5 text-[var(--muted)]">
-                          {answerSelection}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAnswerSelection('');
-                            setAnswerFollowUpQuestion('');
-                            setAnswerSelectionMenu(null);
-                            window.getSelection()?.removeAllRanges();
-                          }}
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--border-color)] text-xs text-[var(--muted)] hover:text-[var(--accent-primary)]"
-                          aria-label="关闭回答追问框"
-                        >
-                          ×
-                        </button>
-                      </div>
-                      <div className="mt-2 min-h-0 flex-1">
-                        <textarea
-                          value={answerFollowUpQuestion}
-                          onChange={(event) =>
-                            setAnswerFollowUpQuestion(event.target.value)
-                          }
-                          placeholder="针对选中的这段回答继续问..."
-                          className="input-japanese h-full min-h-20 w-full resize-none rounded-2xl px-3 py-2 text-xs leading-5 text-[var(--foreground)]"
-                        />
-                      </div>
-                      <div className="mt-2 flex shrink-0 flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void askAboutAnswerSelection()}
-                          disabled={isCaptureSending}
-                          className="btn-japanese inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isCaptureSending ? '正在追问...' : '追问选中内容'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAnswerSelection('');
-                            setAnswerFollowUpQuestion('');
-                            window.getSelection()?.removeAllRanges();
-                          }}
-                          className="inline-flex items-center justify-center rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--accent-primary)]"
-                        >
-                          取消
-                        </button>
-                      </div>
-                      <button
-                        type="button"
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          setAnswerSelectionMenuDrag({
-                            mode: 'resize',
-                            startX: event.clientX,
-                            startY: event.clientY,
-                            box: answerSelectionMenu,
-                          });
-                        }}
-                        className="absolute bottom-2 right-2 h-5 w-5 cursor-nwse-resize rounded-md border-b-2 border-r-2 border-[var(--accent-primary)]/70"
-                        aria-label="拖动调整回答追问框大小"
-                        title="拖动调整回答追问框大小"
-                      />
-                    </div>
-                  ) : null}
-                </>
-              ) : null}
-            </div>
-          </div>
-          <button
-            type="button"
-            onPointerDown={(event) => {
-              event.preventDefault();
-              setCaptureBoxDrag({
-                mode: 'resize',
-                startX: event.clientX,
-                startY: event.clientY,
-                box: captureBox,
-              });
-            }}
-            className="absolute bottom-2 right-2 h-5 w-5 cursor-nwse-resize rounded-md border-b-2 border-r-2 border-[var(--accent-primary)]/70"
-            aria-label="拖动调整截图问答框大小"
-            title="拖动调整截图问答框大小"
+          <img
+            src={pendingCapture.imageDataUrl}
+            alt={`第 ${pendingCapture.pageNumber} 页截图`}
+            className="mb-3 max-h-32 w-full rounded-xl border border-[var(--border-color)] bg-white object-contain"
           />
+          <textarea
+            value={captureQuestion}
+            onChange={(event) => setCaptureQuestion(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                void submitCapture('direct');
+              }
+            }}
+            rows={2}
+            placeholder="写你的问题，回车发送"
+            className="input-japanese w-full resize-none rounded-xl px-3 py-2 text-sm leading-6 text-[var(--foreground)]"
+            autoFocus
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void submitCapture('direct')}
+              disabled={isCaptureSending}
+              className="btn-japanese inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isCaptureSending ? '回答中...' : '发送'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void submitCapture('stage')}
+              disabled={isCaptureSending}
+              className="inline-flex items-center justify-center rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--foreground)] transition hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              加入片段
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingCapture(null);
+                setCaptureQuestion('');
+                setCaptureAnswer('');
+                setCaptureError('');
+                setAnswerSelection('');
+                setAnswerFollowUpQuestion('');
+                setAnswerSelectionMenu(null);
+                setCaptureFollowUps([]);
+              }}
+              className="inline-flex items-center justify-center rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--accent-primary)]"
+            >
+              取消
+            </button>
+          </div>
+          {captureError ? (
+            <div className="mt-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">
+              {captureError}
+            </div>
+          ) : null}
+          {isCaptureSending ? (
+            <div className="mt-3 rounded-xl border border-[var(--border-color)] bg-[var(--background)]/72 px-3 py-2 text-sm text-[var(--muted)]">
+              回答中...
+            </div>
+          ) : null}
+          {captureAnswer ? (
+            <div
+              ref={answerRef}
+              onMouseUp={() => {
+                window.setTimeout(captureAnswerSelection, 0);
+              }}
+              className="mt-3 max-h-60 overflow-auto rounded-xl border border-[var(--border-color)] bg-[var(--background)]/72 px-3 py-2 text-sm leading-6 text-[var(--foreground)]"
+            >
+              <Markdown content={annotatedCaptureAnswer} />
+            </div>
+          ) : null}
         </div>
       ) : null}
 

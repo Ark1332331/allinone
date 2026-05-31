@@ -12,8 +12,15 @@ import {
 import { FaTimes } from 'react-icons/fa';
 
 import Markdown from '@/components/Markdown';
+import AskMenu from '@/components/learning/AskMenu';
 import PdfReadingSurface from '@/components/learning/PdfReadingSurface';
 import PreAssessmentCards from '@/components/PreAssessmentCards';
+import {
+  CUSTOM_TEMPLATE_ID,
+  STAGE_TEMPLATE_ID,
+  buildTemplatePrompt,
+  type PromptTemplate,
+} from '@/lib/prompt-templates';
 import {
   addSnippet,
   getMaterialSnippetHistory,
@@ -34,6 +41,8 @@ import { createSubjectShelfPath } from '@/lib/learn-content';
 import { loadModelConfig } from '@/lib/model-config';
 import {
   annotateContentWithSnippetAnchors,
+  buildAssistantReplyFollowUpMessages,
+  buildCurrentQuestionContext,
   buildReadingQuestionContext,
   clampFloatingBox,
   clampSelectionBox,
@@ -125,6 +134,7 @@ type SendQuestionResult = {
 
 type SendQuestionOptions = {
   openPanel?: boolean;
+  requestMessages?: LearningChatMessage[];
 };
 
 function trimPreview(text: string, maxLength = 160) {
@@ -184,6 +194,9 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
   );
 
   const [selectedSnippets, setSelectedSnippets] = useState<ReadingSnippet[]>([]);
+  const [stagedQuestionSnippets, setStagedQuestionSnippets] = useState<
+    ReadingSnippet[]
+  >([]);
   const [activeSnippetIndex, setActiveSnippetIndex] = useState<number | null>(null);
   const [chatError, setChatError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
@@ -205,6 +218,13 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
   const [floatingThreadDrag, setFloatingThreadDrag] =
     useState<FloatingThreadDragState | null>(null);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
+  const [askMenu, setAskMenu] = useState<{
+    point: { x: number; y: number };
+    text: string;
+    source: SelectionSource;
+    target: SelectionTarget;
+    parentSnippetId: string | null;
+  } | null>(null);
 
   const contentRef = useRef<HTMLDivElement | null>(null);
   const selectionMenuRef = useRef<HTMLDivElement | null>(null);
@@ -390,6 +410,7 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
   useEffect(() => {
     const nextSnippets = material?.savedSnippets ?? [];
     setSelectedSnippets(nextSnippets);
+    setStagedQuestionSnippets([]);
     setActiveSnippetIndex(nextSnippets.length > 0 ? 0 : null);
     setViewMode(material?.preferredViewMode ?? 'structured');
   }, [material?.id]);
@@ -595,6 +616,7 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
       setPendingSelection('');
       setSelectionQuestion('');
       setSelectionMenuFallback(false);
+      setAskMenu(null);
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -603,6 +625,7 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
         setPendingSelection('');
         setSelectionQuestion('');
         setSelectionMenuFallback(false);
+        setAskMenu(null);
         window.getSelection()?.removeAllRanges();
       }
     };
@@ -621,7 +644,18 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
       }
 
       window.setTimeout(() => {
-        updateSelectionMenuFromDocument({ x: event.clientX, y: event.clientY });
+        const selection = window.getSelection();
+        const text = selection?.toString().trim() ?? '';
+        if (!text) {
+          return;
+        }
+        setAskMenu({
+          point: { x: event.clientX, y: event.clientY },
+          text,
+          source: 'text',
+          target: 'material',
+          parentSnippetId: null,
+        });
       }, 0);
     };
 
@@ -748,14 +782,17 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
     target: SelectionTarget = 'material',
     parentSnippetId?: string
   ) => {
-    event.currentTarget.dataset.selectionSource = source;
-    event.currentTarget.dataset.selectionTarget = target;
-    updateSelectionMenuFromDocument(
-      { x: event.clientX, y: event.clientY },
-      event.currentTarget as SelectableElement,
-      target === 'assistant_reply' ? 'above' : undefined
-    );
-    setSelectionParentSnippetId(parentSnippetId ?? null);
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() ?? '';
+    if (!text) return;
+
+    setAskMenu({
+      point: { x: event.clientX, y: event.clientY },
+      text,
+      source,
+      target,
+      parentSnippetId: parentSnippetId ?? null,
+    });
   };
 
   const ensureSnippetThread = (
@@ -870,8 +907,18 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
       return;
     }
 
+    const snippet = ensured.nextSnippets[ensured.index];
     setSelectedSnippets(ensured.nextSnippets);
     setActiveSnippetIndex(ensured.index);
+    if (snippet) {
+      setStagedQuestionSnippets((current) =>
+        buildCurrentQuestionContext({
+          materialId: snippet.materialId,
+          stagedSnippets: current,
+          currentSnippet: snippet,
+        })
+      );
+    }
     persistStudyState(ensured.nextSnippets, ensured.index);
   };
 
@@ -901,6 +948,7 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
   };
 
   const removeSnippetAt = (index: number) => {
+    const removedSnippet = selectedSnippets[index];
     const nextSnippets = removeSnippetAtIndex(selectedSnippets, index);
     const nextActiveIndex =
       activeSnippetIndex === null
@@ -914,6 +962,19 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
             : activeSnippetIndex;
 
     setSelectedSnippets(nextSnippets);
+    if (removedSnippet) {
+      setStagedQuestionSnippets((current) =>
+        current.filter((snippet) =>
+          removedSnippet.id
+            ? snippet.id !== removedSnippet.id
+            : !(
+                snippet.materialId === removedSnippet.materialId &&
+                snippet.text === removedSnippet.text &&
+                snippet.anchorLabel === removedSnippet.anchorLabel
+              )
+        )
+      );
+    }
     setActiveSnippetIndex(nextActiveIndex);
     setFloatingThreads((currentThreads) =>
       reconcileFloatingThreadsAfterSnippetRemoval(currentThreads, index)
@@ -981,7 +1042,7 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
         primaryRole: background.primaryRole,
         fullContent: background.fullContent,
       })),
-      messages: nextMessages,
+      messages: options.requestMessages ?? nextMessages,
       provider: modelConfig.provider,
       model: modelConfig.model || undefined,
       api_key: modelConfig.api_key || undefined,
@@ -1069,13 +1130,54 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
         : null
     );
     closeSelectionMenu();
-    await sendQuestion(
+    const currentSnippet = ensured.nextSnippets[ensured.index];
+    const parentSnippet =
+      selectionTarget === 'assistant_reply' && selectionParentSnippetId
+        ? ensured.nextSnippets.find((snippet) => snippet.id === selectionParentSnippetId)
+        : null;
+    const requestMessages =
+      parentSnippet && (parentSnippet.messages ?? []).length > 0
+        ? buildAssistantReplyFollowUpMessages({
+            parentMessages: parentSnippet.messages ?? [],
+            nextQuestion: prompt,
+          })
+        : undefined;
+    const result = await sendQuestion(
       prompt,
       ensured.index,
       ensured.nextSnippets,
-      buildReadingQuestionContext(ensured.nextSnippets, material.id),
-      { openPanel: false }
+      currentSnippet
+        ? buildCurrentQuestionContext({
+            materialId: material.id,
+            stagedSnippets: stagedQuestionSnippets,
+            currentSnippet,
+          })
+        : buildReadingQuestionContext(ensured.nextSnippets, material.id),
+      { openPanel: false, requestMessages }
     );
+    if (!result.error) {
+      setStagedQuestionSnippets([]);
+    }
+  };
+
+  const handleAskMenuPick = (template: PromptTemplate) => {
+    if (!askMenu) return;
+    const { text, source, target, parentSnippetId, point } = askMenu;
+    setAskMenu(null);
+
+    if (template.id === STAGE_TEMPLATE_ID) {
+      addSelectionSnippet(text, source);
+      window.getSelection()?.removeAllRanges();
+      return;
+    }
+
+    setPendingSelection(text);
+    setSelectionSource(source);
+    setSelectionTarget(target);
+    setSelectionParentSnippetId(parentSnippetId);
+    setSelectionQuestion(template.body);
+    setSelectionMenu(createSelectionMenuBox(point));
+    setSelectionMenuFallback(false);
   };
 
   const handleScreenshotQuestion = async (
@@ -1101,20 +1203,40 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
       messages: snippet.messages ?? [],
     }));
     const index = nextSnippets.length - 1;
+    const currentSnippet = nextSnippets[index];
 
     setSelectedSnippets(nextSnippets);
     setActiveSnippetIndex(index);
     persistStudyState(nextSnippets, index);
 
     if (payload.mode === 'direct') {
-      return await sendQuestion(
+      const result = await sendQuestion(
         payload.question || `请解释 PDF 第 ${payload.pageNumber} 页这块截图里的关键内容。`,
         index,
         nextSnippets,
-        buildReadingQuestionContext(nextSnippets, material.id),
+        currentSnippet
+          ? buildCurrentQuestionContext({
+              materialId: material.id,
+              stagedSnippets: stagedQuestionSnippets,
+              currentSnippet,
+            })
+          : buildReadingQuestionContext(nextSnippets, material.id),
         { openPanel: true }
       );
+      if (!result.error) {
+        setStagedQuestionSnippets([]);
+      }
+      return result;
     } else {
+      if (currentSnippet) {
+        setStagedQuestionSnippets((current) =>
+          buildCurrentQuestionContext({
+            materialId: material.id,
+            stagedSnippets: current,
+            currentSnippet,
+          })
+        );
+      }
       setIsHistoryPanelOpen(false);
     }
 
@@ -1191,124 +1313,47 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
   const selectionMenuNode = pendingSelection ? (
     <div
       ref={selectionMenuRef}
-      className={`fixed flex flex-col rounded-2xl border bg-[var(--card-bg)] p-3 shadow-custom backdrop-blur-sm ${
-        selectionMenuFallback
-          ? 'border-[var(--accent-primary)]'
-          : 'border-[var(--border-color)]'
-      }`}
+      className="fixed z-[120] flex w-80 flex-col rounded-2xl border border-[var(--border-color)] bg-[var(--card-bg)]/96 p-3 shadow-custom backdrop-blur-sm"
       style={{
         left: `${selectionMenuBox.x}px`,
         top: `${selectionMenuBox.y}px`,
-        width: `${selectionMenuBox.width}px`,
-        height: `${selectionMenuBox.height}px`,
-        zIndex: getFloatingLayerZIndex('selection-menu'),
       }}
       role="dialog"
       aria-label="选区提问框"
     >
-      <button
-        type="button"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          setSelectionMenuDrag({
-            mode: 'resize-left',
-            startX: event.clientX,
-            startY: event.clientY,
-            box: selectionMenuBox,
-          });
+      <p className="line-clamp-1 text-xs leading-5 text-[var(--muted)]">
+        {trimPreview(pendingSelection, 60)}
+      </p>
+      <textarea
+        value={selectionQuestion}
+        onChange={(event) => setSelectionQuestion(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            void handleDirectAsk();
+          }
         }}
-        className="absolute left-0 top-10 h-[calc(100%-3.25rem)] w-2 -translate-x-1 cursor-ew-resize rounded-full bg-transparent transition hover:bg-[var(--accent-primary)]/60"
-        aria-label="拖动调整左侧宽度"
-        title="拖动调整左侧宽度"
+        placeholder="可以直接回车发送，或修改后再发"
+        rows={2}
+        className="input-japanese mt-2 w-full resize-none rounded-xl px-3 py-2 text-xs leading-5 text-[var(--foreground)]"
+        autoFocus
       />
-      <div
-        className="flex cursor-move items-start justify-between gap-3"
-        onPointerDown={(event) => {
-          if (event.button !== 0) {
-            return;
-          }
-          const target = event.target as HTMLElement | null;
-          if (target?.closest('button, textarea, input, a')) {
-            return;
-          }
-          event.preventDefault();
-          setSelectionMenuDrag({
-            mode: 'move',
-            startX: event.clientX,
-            startY: event.clientY,
-            box: selectionMenuBox,
-          });
-        }}
-      >
-        <div className="min-w-0">
-          {selectionMenuFallback ? (
-            <p className="mb-1 text-xs font-semibold text-[var(--accent-primary)]">
-              已选中文字，可以在这里提问
-            </p>
-          ) : null}
-          <p className="line-clamp-2 text-xs leading-5 text-[var(--muted)]">
-            {trimPreview(pendingSelection)}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={closeSelectionMenu}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border-color)] text-[0.65rem] text-[var(--muted)] transition hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
-          aria-label="关闭选区提问框"
-          title="关闭"
-        >
-          <FaTimes aria-hidden="true" />
-        </button>
-      </div>
-      <div className="mt-3 min-h-0 flex-1">
-        <textarea
-          value={selectionQuestion}
-          onChange={(event) => setSelectionQuestion(event.target.value)}
-          placeholder="在这里写你的问题。留空则默认解释这段内容。"
-          className="input-japanese h-full min-h-20 w-full resize-none rounded-2xl px-3 py-2 text-xs leading-5 text-[var(--foreground)]"
-        />
-      </div>
-      <div className="mt-3 flex shrink-0 flex-wrap gap-2">
+      <div className="mt-2 flex gap-2">
         <button
           type="button"
           onClick={() => void handleDirectAsk()}
           className="btn-japanese inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs"
         >
-          直接提问
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            addSelectionSnippet(pendingSelection, selectionSource);
-            closeSelectionMenu();
-          }}
-          className="inline-flex items-center justify-center rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--foreground)] transition hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
-        >
-          先加入片段
+          发送
         </button>
         <button
           type="button"
           onClick={closeSelectionMenu}
           className="inline-flex items-center justify-center rounded-full border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--accent-primary)]"
         >
-          关闭
+          取消
         </button>
       </div>
-      <button
-        type="button"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          setSelectionMenuDrag({
-            mode: 'resize',
-            startX: event.clientX,
-            startY: event.clientY,
-            box: selectionMenuBox,
-          });
-        }}
-        className="absolute bottom-2 right-2 h-5 w-5 cursor-nwse-resize rounded-md border-b-2 border-r-2 border-[var(--accent-primary)]/70"
-        aria-label="拖动调整选区提问框大小"
-        title="拖动调整选区提问框大小"
-      />
     </div>
   ) : null;
 
@@ -1348,6 +1393,13 @@ export default function ReadingWorkspace({ subjectSlug, materialId }: Props) {
     {selectionMenuNode && typeof document !== 'undefined'
       ? createPortal(selectionMenuNode, document.body)
       : null}
+    {askMenu ? (
+      <AskMenu
+        point={askMenu.point}
+        onPick={handleAskMenuPick}
+        onClose={() => setAskMenu(null)}
+      />
+    ) : null}
     <div className="min-h-dvh paper-texture px-4 py-6 md:px-8 md:py-10">
       <div className="mx-auto max-w-[1600px] space-y-6">
         <header className="rounded-[28px] border border-[var(--border-color)] bg-[var(--card-bg)]/92 p-6 shadow-custom backdrop-blur-sm md:p-8">

@@ -1,4 +1,5 @@
 import type { ReadingSnippet } from '@/types/learning-workspace';
+import type { LearningChatMessage } from '@/types/learning-chat';
 
 type RectLike = {
   left: number;
@@ -27,6 +28,26 @@ export type FloatingThreadBox = FloatingBox & {
 
 const VIEWPORT_MARGIN = 12;
 const MENU_GAP = 10;
+const ASK_MENU_GAP = 8;
+
+export function getAskMenuPosition(point: { x: number; y: number }) {
+  const alignRight = point.x > window.innerWidth / 2;
+  const openUp = point.y > window.innerHeight / 2;
+
+  return {
+    left: clamp(
+      point.x + (alignRight ? -ASK_MENU_GAP : ASK_MENU_GAP),
+      VIEWPORT_MARGIN,
+      window.innerWidth - VIEWPORT_MARGIN
+    ),
+    top: clamp(
+      point.y + (openUp ? -ASK_MENU_GAP : ASK_MENU_GAP),
+      VIEWPORT_MARGIN,
+      window.innerHeight - VIEWPORT_MARGIN
+    ),
+    transform: `${alignRight ? 'translateX(-100%)' : ''}${openUp ? ' translateY(-100%)' : ''}`.trim() || undefined,
+  };
+}
 const DEFAULT_MENU_SIZE: Size = {
   width: 336,
   height: 190,
@@ -769,4 +790,53 @@ export function buildReadingQuestionContext(
   }
 
   return context.slice(-12);
+}
+
+export function buildCurrentQuestionContext(input: {
+  materialId: string;
+  stagedSnippets?: ReadingSnippet[];
+  currentSnippet: ReadingSnippet;
+  limit?: number;
+}): ReadingSnippet[] {
+  const limit = input.limit ?? 12;
+  const context: ReadingSnippet[] = [];
+  const seen = new Set<string>();
+
+  const append = (snippet: ReadingSnippet) => {
+    if (snippet.materialId !== input.materialId) {
+      return;
+    }
+
+    const normalized = toContextSnippet(snippet);
+    if (!normalized) {
+      return;
+    }
+
+    const key = `${normalized.materialId}:${normalized.text}`;
+    if (seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    context.push(normalized);
+  };
+
+  input.stagedSnippets?.forEach(append);
+  append(input.currentSnippet);
+
+  return context.slice(-limit);
+}
+
+export function buildAssistantReplyFollowUpMessages(input: {
+  parentMessages: LearningChatMessage[];
+  nextQuestion: string;
+  limit?: number;
+}): LearningChatMessage[] {
+  const trimmedQuestion = input.nextQuestion.trim();
+  const messages = [
+    ...input.parentMessages.filter((message) => message.content.trim()),
+    ...(trimmedQuestion ? [{ role: 'user' as const, content: trimmedQuestion }] : []),
+  ];
+
+  return messages.slice(-(input.limit ?? 20));
 }
